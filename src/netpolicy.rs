@@ -1,6 +1,4 @@
 use std::collections::HashSet;
-use std::path::Path;
-use anyhow::Result;
 
 use crate::alerts::{Alert, Severity};
 use crate::config::NetPolicyConfig;
