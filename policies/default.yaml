@@ -353,11 +353,19 @@ rules:
   - name: "detect-binary-replacement"
     description: "Flag overwriting of system binaries"
     match:
-      file_access:
-        - "/usr/bin/*"
-        - "/usr/sbin/*" 
-        - "/bin/*"
-        - "/sbin/*"
+      command_contains:
+        - "cp * /usr/bin/"
+        - "cp * /usr/sbin/"
+        - "cp * /bin/"
+        - "cp * /sbin/"
+        - "mv * /usr/bin/"
+        - "mv * /usr/sbin/"
+        - "mv * /bin/"
+        - "mv * /sbin/"
+        - "install * /usr/bin/"
+        - "install * /usr/sbin/"
+        - "install * /bin/"
+        - "install * /sbin/"
     action: critical
 
   # ── Kernel Parameter Changes ───────────────────────────────────────────────

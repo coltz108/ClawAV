@@ -578,6 +578,11 @@ impl SecureClawEngine {
                     }
                 }
 
+                // Skip crontab -l (read-only listing, not modification)
+                if matched.as_str().contains("crontab") && cmd_lower.contains("crontab -l") {
+                    continue;
+                }
+
                 matches.push(PatternMatch {
                     database: "dangerous_commands".to_string(),
                     category: pattern.category.clone(),
