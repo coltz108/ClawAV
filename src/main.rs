@@ -30,21 +30,188 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
+fn print_help() {
+    eprintln!(r#"🛡️  ClawAV — Tamper-proof security watchdog for AI agents
+
+USAGE:
+    clawav [COMMAND] [OPTIONS]
+
+COMMANDS:
+    run                  Start the watchdog with TUI dashboard (default)
+    run --headless       Start in headless mode (no TUI, log to stderr)
+    status               Show service status and recent alerts
+    configure            Interactive configuration wizard
+    scan                 Run a one-shot security scan and exit
+    verify-audit [PATH]  Verify audit chain integrity
+    setup                Install ClawAV as a system service
+    setup --source       Build from source + install
+    setup --auto         Install + start service automatically
+    harden               Apply tamper-proof "swallowed key" hardening (⚠️ irreversible)
+    sync                 Update SecureClaw pattern databases
+    logs                 Tail the service logs (journalctl)
+    help                 Show this help message
+    version              Show version info
+
+EXAMPLES:
+    clawav                           Start TUI dashboard
+    clawav run --headless            Run as background daemon
+    clawav configure                 Set up Slack, watched users, etc.
+    clawav scan                      Quick security scan
+    clawav setup --source --auto     Full unattended install from source
+    clawav status                    Check if service is running
+
+CONFIG:
+    Default config path: /etc/clawav/config.toml
+    Override with:       clawav run /path/to/config.toml
+"#);
+}
+
+fn print_version() {
+    eprintln!("ClawAV v0.1.0");
+    eprintln!("Tamper-proof security watchdog for AI agents");
+    eprintln!("https://github.com/coltzclaw/ClawAV");
+}
+
+/// Find the scripts directory relative to the binary or fallback locations
+fn find_scripts_dir() -> Option<PathBuf> {
+    // Check relative to binary location
+    if let Ok(exe) = std::env::current_exe() {
+        // Binary at /usr/local/bin/clawav → scripts at source dir
+        // Binary at target/release/clawav → scripts at ../../scripts
+        let parent = exe.parent()?;
+        let candidate = parent.join("../../scripts");
+        if candidate.join("configure.sh").exists() {
+            return Some(candidate.canonicalize().ok()?);
+        }
+    }
+    // Check common locations
+    let candidates = [
+        PathBuf::from("/home/openclaw/.openclaw/workspace/openclawav/scripts"),
+        PathBuf::from("./scripts"),
+        PathBuf::from("/opt/clawav/scripts"),
+    ];
+    for c in &candidates {
+        if c.join("configure.sh").exists() {
+            return Some(c.clone());
+        }
+    }
+    None
+}
+
+fn run_script(name: &str, extra_args: &[String]) -> Result<()> {
+    let scripts_dir = find_scripts_dir()
+        .ok_or_else(|| anyhow::anyhow!("Cannot find scripts directory. Run from the ClawAV source directory or set up with setup.sh first."))?;
+    let script = scripts_dir.join(name);
+    if !script.exists() {
+        anyhow::bail!("Script not found: {}", script.display());
+    }
+    let mut cmd = std::process::Command::new("bash");
+    cmd.arg(&script);
+    for arg in extra_args {
+        cmd.arg(arg);
+    }
+    let status = cmd.status()?;
+    if !status.success() {
+        anyhow::bail!("{} exited with code {}", name, status.code().unwrap_or(-1));
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Check for verify-audit subcommand
     let args: Vec<String> = std::env::args().collect();
-    if args.len() >= 2 && args[1] == "verify-audit" {
-        let path = args.get(2).map(|s| s.as_str());
-        return audit_chain::run_verify_audit(path);
+    let subcommand = args.get(1).map(|s| s.as_str()).unwrap_or("run");
+    let rest_args: Vec<String> = args.iter().skip(2).cloned().collect();
+
+    match subcommand {
+        "help" | "--help" | "-h" => {
+            print_help();
+            return Ok(());
+        }
+        "version" | "--version" | "-V" => {
+            print_version();
+            return Ok(());
+        }
+        "verify-audit" => {
+            let path = args.get(2).map(|s| s.as_str());
+            return audit_chain::run_verify_audit(path);
+        }
+        "configure" => {
+            return run_script("configure.sh", &rest_args);
+        }
+        "setup" => {
+            return run_script("setup.sh", &rest_args);
+        }
+        "harden" => {
+            return run_script("install.sh", &rest_args);
+        }
+        "sync" => {
+            return run_script("sync-secureclaw.sh", &rest_args);
+        }
+        "logs" => {
+            let status = std::process::Command::new("journalctl")
+                .args(["-u", "clawav", "-f", "--no-pager"])
+                .status()?;
+            std::process::exit(status.code().unwrap_or(1));
+        }
+        "status" => {
+            // Show service status
+            let _ = std::process::Command::new("systemctl")
+                .args(["status", "clawav", "--no-pager"])
+                .status();
+            eprintln!("");
+            // Show recent alerts from API if available
+            let api_result = std::process::Command::new("curl")
+                .args(["-s", "http://localhost:18791/api/security"])
+                .output();
+            if let Ok(output) = api_result {
+                let body = String::from_utf8_lossy(&output.stdout);
+                if !body.is_empty() && body.contains("critical") {
+                    eprintln!("Alert Summary (from API):");
+                    eprintln!("{}", body);
+                }
+            }
+            return Ok(());
+        }
+        "scan" => {
+            // Run one-shot scan and print results
+            let results = scanner::SecurityScanner::run_all_scans();
+            eprintln!("🛡️  ClawAV Security Scan");
+            eprintln!("========================");
+            for r in &results {
+                let icon = match r.status {
+                    scanner::ScanStatus::Pass => "✅",
+                    scanner::ScanStatus::Warn => "⚠️ ",
+                    scanner::ScanStatus::Fail => "❌",
+                };
+                eprintln!("{} [{}] {}: {}", icon, r.status, r.category, r.details);
+            }
+            let pass_count = results.iter().filter(|r| r.status == scanner::ScanStatus::Pass).count();
+            let total = results.len();
+            eprintln!("");
+            eprintln!("Score: {}/{} checks passed", pass_count, total);
+            return Ok(());
+        }
+        "run" | _ => {
+            // Fall through to normal watchdog startup
+        }
     }
 
-    // Parse args: skip flags (--headless), find config path
-    let positional_args: Vec<&String> = args.iter().skip(1).filter(|a| !a.starts_with("--")).collect();
-    let config_path = positional_args
-        .first()
-        .map(|s| PathBuf::from(s))
+    // ── Normal watchdog startup ──────────────────────────────────────────────
+    // Parse remaining args for run mode
+    let run_args: Vec<&String> = if subcommand == "run" {
+        rest_args.iter().collect()
+    } else {
+        // Called as `clawav /path/to/config.toml` or `clawav --headless`
+        args.iter().skip(1).collect()
+    };
+
+    let config_path = run_args.iter()
+        .find(|a| !a.starts_with("--"))
+        .map(|s| PathBuf::from(s.as_str()))
         .unwrap_or_else(|| PathBuf::from("/etc/clawav/config.toml"));
+
+    let headless = run_args.iter().any(|a| a.as_str() == "--headless");
 
     let config = Config::load(&config_path)?;
     let notifier = SlackNotifier::new(&config.slack);
@@ -259,9 +426,6 @@ async fn main() -> Result<()> {
     // Send startup alert (through aggregator)
     let startup = Alert::new(Severity::Info, "system", "ClawAV watchdog started");
     let _ = raw_tx.send(startup).await;
-
-    // Check for --headless flag
-    let headless = std::env::args().any(|a| a == "--headless");
 
     if headless {
         // Headless mode: just drain alerts and log them
