@@ -1,0 +1,62 @@
+rules:
+  - name: "block-data-exfiltration"
+    description: "Block curl/wget/nc to unknown hosts"
+    match:
+      command: ["curl", "wget", "nc", "ncat", "netcat", "socat"]
+      exclude_args: ["api.anthropic.com", "api.openai.com", "github.com"]
+    action: critical
+
+  - name: "deny-shadow-read"
+    description: "Alert on sensitive credential file access"
+    match:
+      file_access: ["/etc/shadow", "/etc/gshadow", "/etc/master.passwd", "/etc/sudoers", "/etc/sudoers.d/*"]
+    action: critical
+
+  - name: "deny-sensitive-write"
+    description: "Alert on writes to critical system files"
+    match:
+      file_access: ["/etc/passwd", "/etc/hosts", "/etc/crontab", "/etc/shadow"]
+    action: critical
+
+  - name: "deny-firewall-changes"
+    description: "Alert on firewall/security modifications"
+    match:
+      command_contains:
+        - "ufw disable"
+        - "iptables -F"
+        - "iptables --flush"
+        - "iptables -f"
+        - "nft flush"
+        - "systemctl stop apparmor"
+        - "systemctl disable apparmor"
+        - "systemctl stop auditd"
+        - "systemctl disable auditd"
+        - "systemctl stop openclawav"
+        - "systemctl disable openclawav"
+        - "systemctl stop samhain"
+        - "systemctl disable samhain"
+        - "systemctl stop fail2ban"
+        - "systemctl disable fail2ban"
+        - "aa-teardown"
+        - "setenforce 0"
+    action: critical
+
+  - name: "recon-detection"
+    description: "Flag reconnaissance commands"
+    match:
+      command: ["whoami", "id", "uname", "env", "printenv", "hostname", "ifconfig"]
+    action: warning
+
+  - name: "recon-sensitive-files"
+    description: "Flag access to credential/config files"
+    match:
+      file_access:
+        - "**/.env"
+        - "**/.aws/credentials"
+        - "**/.aws/config"
+        - "**/.ssh/id_rsa"
+        - "**/.ssh/id_ed25519"
+        - "**/.ssh/config"
+        - "**/.gnupg/**"
+        - "**/.kube/config"
+    action: warning

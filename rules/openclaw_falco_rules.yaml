@@ -1,0 +1,193 @@
+# OpenClawAV — Custom Falco Rules for OpenClaw Agent Monitoring
+# These rules monitor the 'openclaw' user for suspicious behavior.
+
+# ============================================================
+# Macros
+# ============================================================
+
+- macro: openclaw_user
+  condition: user.name = "openclaw"
+
+- macro: openclaw_allowed_binaries
+  condition: >
+    proc.name in (node, npm, npx, git, bash, sh, curl, wget,
+                  openclawav, journalctl, cat, ls, grep, find,
+                  python3, pip3, cargo, rustc, ffmpeg, ffprobe)
+
+- macro: openclaw_allowed_dirs
+  condition: >
+    (fd.name startswith /home/openclaw/ or
+     fd.name startswith /tmp/ or
+     fd.name startswith /proc/ or
+     fd.name startswith /dev/null)
+
+# ============================================================
+# Rules: Unexpected Process Execution
+# ============================================================
+
+- rule: OpenClaw Unexpected Process
+  desc: Detect processes spawned by openclaw that are not in the allowlist
+  condition: >
+    spawned_process and openclaw_user
+    and not openclaw_allowed_binaries
+    and not proc.name in (sudo, su)
+  output: >
+    Unexpected process by openclaw user
+    (user=%user.name command=%proc.cmdline pid=%proc.pid
+     parent=%proc.pname container=%container.id)
+  priority: WARNING
+  tags: [openclaw, process]
+
+# ============================================================
+# Rules: Privilege Escalation
+# ============================================================
+
+- rule: OpenClaw Privilege Escalation Attempt
+  desc: Detect openclaw user attempting to gain elevated privileges
+  condition: >
+    spawned_process and openclaw_user
+    and proc.name in (sudo, su, pkexec, doas, newgrp)
+  output: >
+    Privilege escalation attempt by openclaw
+    (user=%user.name command=%proc.cmdline pid=%proc.pid
+     parent=%proc.pname)
+  priority: CRITICAL
+  tags: [openclaw, privilege_escalation]
+
+- rule: OpenClaw Setuid Execution
+  desc: Detect openclaw running setuid binaries
+  condition: >
+    spawned_process and openclaw_user
+    and proc.is_exe_upper_layer=true
+  output: >
+    Setuid binary executed by openclaw
+    (user=%user.name command=%proc.cmdline pid=%proc.pid)
+  priority: CRITICAL
+  tags: [openclaw, privilege_escalation]
+
+# ============================================================
+# Rules: Sandbox Escape Attempts
+# ============================================================
+
+- rule: OpenClaw Namespace Manipulation
+  desc: Detect openclaw attempting to create/modify namespaces
+  condition: >
+    openclaw_user and
+    (evt.type in (unshare, setns) or
+     (spawned_process and proc.name in (unshare, nsenter)))
+  output: >
+    Namespace manipulation by openclaw
+    (user=%user.name command=%proc.cmdline evt=%evt.type)
+  priority: CRITICAL
+  tags: [openclaw, sandbox_escape]
+
+- rule: OpenClaw Mount Attempt
+  desc: Detect openclaw attempting to mount filesystems
+  condition: >
+    openclaw_user and
+    (evt.type in (mount, umount2) or
+     (spawned_process and proc.name in (mount, umount, fusermount)))
+  output: >
+    Mount attempt by openclaw
+    (user=%user.name command=%proc.cmdline evt=%evt.type)
+  priority: CRITICAL
+  tags: [openclaw, sandbox_escape]
+
+- rule: OpenClaw Ptrace Attempt
+  desc: Detect openclaw attempting to ptrace other processes
+  condition: >
+    evt.type = ptrace and openclaw_user
+  output: >
+    Ptrace attempt by openclaw
+    (user=%user.name command=%proc.cmdline target=%evt.arg.pid)
+  priority: CRITICAL
+  tags: [openclaw, sandbox_escape]
+
+- rule: OpenClaw Kernel Module Load
+  desc: Detect openclaw attempting to load kernel modules
+  condition: >
+    openclaw_user and
+    (evt.type in (init_module, finit_module) or
+     (spawned_process and proc.name in (insmod, modprobe, rmmod)))
+  output: >
+    Kernel module load attempt by openclaw
+    (user=%user.name command=%proc.cmdline)
+  priority: CRITICAL
+  tags: [openclaw, sandbox_escape]
+
+# ============================================================
+# Rules: Suspicious File Access
+# ============================================================
+
+- rule: OpenClaw Access Watchdog Files
+  desc: Detect openclaw accessing OpenClawAV files
+  condition: >
+    openclaw_user and open_read and
+    (fd.name startswith /etc/openclawav/ or
+     fd.name startswith /opt/openclawav/ or
+     fd.name startswith /var/log/openclawav/)
+  output: >
+    OpenClaw accessing watchdog files
+    (user=%user.name file=%fd.name command=%proc.cmdline)
+  priority: CRITICAL
+  tags: [openclaw, file_access, tamper]
+
+- rule: OpenClaw Access Shadow Files
+  desc: Detect openclaw reading sensitive auth files
+  condition: >
+    openclaw_user and open_read and
+    fd.name in (/etc/shadow, /etc/gshadow, /etc/sudoers)
+  output: >
+    OpenClaw reading sensitive auth file
+    (user=%user.name file=%fd.name command=%proc.cmdline)
+  priority: CRITICAL
+  tags: [openclaw, file_access]
+
+- rule: OpenClaw Access SSH Keys
+  desc: Detect openclaw accessing SSH private keys outside its own directory
+  condition: >
+    openclaw_user and open_read and
+    fd.name contains "id_rsa" or fd.name contains "id_ed25519" and
+    not fd.name startswith /home/openclaw/
+  output: >
+    OpenClaw accessing SSH keys outside home
+    (user=%user.name file=%fd.name command=%proc.cmdline)
+  priority: CRITICAL
+  tags: [openclaw, file_access]
+
+- rule: OpenClaw Write System Config
+  desc: Detect openclaw writing to system configuration
+  condition: >
+    openclaw_user and open_write and
+    (fd.name startswith /etc/ and
+     not fd.name startswith /etc/openclaw/)
+  output: >
+    OpenClaw writing to system config
+    (user=%user.name file=%fd.name command=%proc.cmdline)
+  priority: WARNING
+  tags: [openclaw, file_access]
+
+# ============================================================
+# Rules: Network Anomalies
+# ============================================================
+
+- rule: OpenClaw Raw Socket
+  desc: Detect openclaw creating raw sockets (potential scanning/sniffing)
+  condition: >
+    openclaw_user and evt.type = socket and evt.arg.type = raw
+  output: >
+    Raw socket created by openclaw
+    (user=%user.name command=%proc.cmdline)
+  priority: CRITICAL
+  tags: [openclaw, network]
+
+- rule: OpenClaw Listen on Port
+  desc: Detect openclaw binding to a listening port
+  condition: >
+    openclaw_user and evt.type = bind
+    and evt.arg.port != 0
+  output: >
+    OpenClaw listening on port
+    (user=%user.name port=%evt.arg.port command=%proc.cmdline)
+  priority: WARNING
+  tags: [openclaw, network]

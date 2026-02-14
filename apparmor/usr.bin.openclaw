@@ -1,0 +1,110 @@
+# AppArmor profile for the OpenClaw agent
+# Restricts the openclaw user's processes from accessing
+# watchdog files, dangerous capabilities, and sensitive system files.
+#
+# Install: sudo cp usr.bin.openclaw /etc/apparmor.d/
+#          sudo apparmor_parser -r /etc/apparmor.d/usr.bin.openclaw
+
+#include <tunables/global>
+
+profile openclaw /home/openclaw/.openclaw/** flags=(enforce) {
+  #include <abstractions/base>
+  #include <abstractions/nameservice>
+  #include <abstractions/openssl>
+
+  # ============================
+  # ALLOW: OpenClaw working dirs
+  # ============================
+  owner /home/openclaw/** rw,
+  owner /home/openclaw/.openclaw/** rwk,
+  owner /tmp/** rw,
+  /tmp/** r,
+
+  # ============================
+  # ALLOW: Read common system paths
+  # ============================
+  /etc/hosts r,
+  /etc/resolv.conf r,
+  /etc/ssl/** r,
+  /etc/ca-certificates/** r,
+  /usr/share/ca-certificates/** r,
+  /etc/openclaw/** r,
+  /proc/** r,
+  /sys/class/net/** r,
+  /dev/null rw,
+  /dev/urandom r,
+  /dev/tty rw,
+  /dev/pts/* rw,
+
+  # ============================
+  # ALLOW: Execute permitted binaries
+  # ============================
+  /usr/bin/node ix,
+  /usr/bin/npm ix,
+  /usr/bin/npx ix,
+  /usr/bin/git ix,
+  /usr/bin/bash ix,
+  /usr/bin/sh ix,
+  /usr/bin/dash ix,
+  /usr/bin/curl ix,
+  /usr/bin/wget ix,
+  /usr/bin/python3* ix,
+  /usr/bin/pip3 ix,
+  /usr/bin/cargo ix,
+  /usr/bin/rustc ix,
+  /usr/bin/ffmpeg ix,
+  /usr/bin/ffprobe ix,
+  /usr/bin/cat ix,
+  /usr/bin/ls ix,
+  /usr/bin/grep ix,
+  /usr/bin/find ix,
+  /usr/bin/head ix,
+  /usr/bin/tail ix,
+  /usr/bin/wc ix,
+  /usr/bin/sort ix,
+  /usr/bin/sed ix,
+  /usr/bin/awk ix,
+  /usr/bin/cut ix,
+  /usr/bin/env ix,
+  /usr/bin/tee ix,
+
+  # ============================
+  # DENY: Watchdog files (CRITICAL)
+  # ============================
+  deny /etc/openclawav/** rwxl,
+  deny /opt/openclawav/** rwxl,
+  deny /var/log/openclawav/** rwxl,
+  deny /usr/local/bin/openclawav rwxl,
+  deny /etc/apparmor.d/** rwxl,
+  deny /etc/audit/** rwxl,
+  deny /etc/falco/** rwxl,
+  deny /var/log/falco/** rwxl,
+
+  # ============================
+  # DENY: Sensitive system files
+  # ============================
+  deny /etc/shadow r,
+  deny /etc/gshadow r,
+  deny /etc/sudoers r,
+  deny /etc/sudoers.d/** r,
+
+  # ============================
+  # DENY: Dangerous capabilities
+  # ============================
+  deny capability sys_admin,
+  deny capability sys_module,
+  deny capability sys_ptrace,
+  deny capability sys_rawio,
+  deny capability net_admin,
+  deny capability linux_immutable,
+  deny capability sys_boot,
+  deny capability mknod,
+
+  # ============================
+  # DENY: Dangerous syscall-adjacent
+  # ============================
+  deny mount,
+  deny umount,
+  deny pivot_root,
+  deny ptrace,
+}

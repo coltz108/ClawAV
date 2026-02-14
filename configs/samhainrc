@@ -1,0 +1,124 @@
+# OpenClawAV — Samhain Configuration
+# File Integrity Monitoring for Raspberry Pi 5
+
+##################################################
+# General settings
+##################################################
+
+[Misc]
+# Daemon mode
+Daemon=yes
+
+# Recheck interval (seconds) — every 15 minutes
+SetFilecheckTime=900
+
+# Log severity threshold
+SetLogSeverity=warn
+
+# Use JSON log format for easy parsing
+SetLogFormat=json
+
+##################################################
+# Log file output (for OpenClawAV parsing)
+##################################################
+
+[Log]
+# Log to file in JSON for OpenClawAV to parse
+LogFile=/var/log/samhain/samhain.jsonl
+LogSeverity=warn
+
+# Also log to syslog as backup
+SyslogFacility=local2
+
+##################################################
+# Critical system binaries — ReadOnly (detect any change)
+##################################################
+
+[ReadOnly]
+dir=/usr/bin
+dir=/usr/sbin
+dir=/bin
+dir=/sbin
+dir=/usr/local/bin
+dir=/usr/local/sbin
+
+# Boot config
+file=/boot/firmware/config.txt
+file=/boot/firmware/cmdline.txt
+
+# Init system
+file=/sbin/init
+dir=/lib/systemd/system
+
+##################################################
+# System configuration — ReadOnly
+##################################################
+
+[ReadOnly]
+dir=/etc/apparmor.d
+dir=/etc/audit
+dir=/etc/falco
+dir=/etc/openclawav
+dir=/etc/systemd/system
+file=/etc/passwd
+file=/etc/shadow
+file=/etc/group
+file=/etc/gshadow
+file=/etc/sudoers
+dir=/etc/sudoers.d
+file=/etc/ssh/sshd_config
+file=/etc/fstab
+file=/etc/hosts
+file=/etc/crontab
+dir=/etc/cron.d
+dir=/etc/cron.daily
+dir=/etc/cron.weekly
+
+##################################################
+# OpenClawAV binary and config — ReadOnly
+##################################################
+
+[ReadOnly]
+file=/usr/local/bin/openclawav
+dir=/etc/openclawav
+dir=/opt/openclawav
+
+##################################################
+# Kernel modules — ReadOnly
+##################################################
+
+[ReadOnly]
+dir=/lib/modules
+
+##################################################
+# Logs directory — LogFiles (track growth, not content changes)
+##################################################
+
+[LogFiles]
+dir=/var/log/openclawav
+dir=/var/log/samhain
+dir=/var/log/falco
+file=/var/log/auth.log
+
+##################################################
+# Ignore patterns — things that change legitimately
+##################################################
+
+[IgnoreAll]
+dir=/tmp
+dir=/var/tmp
+dir=/run
+dir=/proc
+dir=/sys
+dir=/dev
+dir=/var/cache
+dir=/home/openclaw/.openclaw/workspace
+
+##################################################
+# Database settings
+##################################################
+
+[Database]
+# PGP-signed database location
+SetDBFile=/var/lib/samhain/samhain_file
+# This will be signed with samhain's built-in hash

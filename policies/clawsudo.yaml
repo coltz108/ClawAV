@@ -1,0 +1,42 @@
+rules:
+  - name: "allow-apt"
+    match:
+      command: ["apt", "apt-get"]
+    action: info
+    enforcement: allow
+
+  - name: "allow-docker"
+    match:
+      command: ["docker", "docker-compose"]
+    action: info
+    enforcement: allow
+
+  - name: "allow-systemctl-openclaw"
+    match:
+      command_contains: ["systemctl restart openclaw", "systemctl status"]
+    action: info
+    enforcement: allow
+
+  - name: "deny-openclawav-tamper"
+    match:
+      command_contains: ["openclawav", "/etc/openclawav", "chattr", "auditctl -e", "auditctl -D", "apparmor_parser -R"]
+    action: critical
+    enforcement: deny
+
+  - name: "deny-firewall-disable"
+    match:
+      command_contains: ["ufw disable", "iptables -F", "nft flush"]
+    action: critical
+    enforcement: deny
+
+  - name: "deny-raw-shell"
+    match:
+      command: ["bash", "sh", "zsh", "dash"]
+    action: critical
+    enforcement: deny
+
+  - name: "deny-dangerous-rm"
+    match:
+      command_contains: ["rm -rf /etc", "rm -rf /usr", "rm -rf /var", "rm -rf /"]
+    action: critical
+    enforcement: deny
