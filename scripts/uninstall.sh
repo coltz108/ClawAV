@@ -96,10 +96,10 @@ if ! $FORCE; then
         [[ -n "$ADMIN_KEY" ]] || die "No admin key provided"
 
         # Verify using clawav verify-key
-        CLAWAV_BIN="/usr/local/bin/clawav"
+        CLAWAV_BIN="$(command -v clawav 2>/dev/null || true)"
         if [[ ! -x "$CLAWAV_BIN" ]]; then
             # Try to find it in common locations
-            for candidate in ./target/release/clawav /home/openclaw/.openclaw/workspace/openclawav/target/release/clawav; do
+            for candidate in /usr/local/bin/clawav /home/openclaw/bin/clawav ./target/release/clawav /home/openclaw/.openclaw/workspace/openclawav/target/release/clawav; do
                 if [[ -x "$candidate" ]]; then
                     CLAWAV_BIN="$candidate"
                     break
@@ -107,7 +107,7 @@ if ! $FORCE; then
             done
         fi
 
-        if echo "$ADMIN_KEY" | "$CLAWAV_BIN" verify-key 2>/dev/null; then
+        if echo "$ADMIN_KEY" | "$CLAWAV_BIN" verify-key; then
             log "✅ Admin key verified"
         else
             die "❌ Invalid admin key. Uninstall denied."
