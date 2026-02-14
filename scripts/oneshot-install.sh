@@ -25,19 +25,19 @@ confirm() {
     local prompt="$1"
     local response
     while true; do
-        echo -en "${CYAN}${prompt}${NC} "
-        read -r response
+        echo -en "${CYAN}${prompt}${NC} " > /dev/tty
+        read -r response < /dev/tty
         case "$response" in
             [yY]|[yY][eE][sS]) return 0 ;;
             [nN]|[nN][oO]) return 1 ;;
-            *) echo "Please answer yes or no." ;;
+            *) echo "Please answer yes or no." > /dev/tty ;;
         esac
     done
 }
 
 wait_for_enter() {
-    echo -en "${CYAN}$1${NC}"
-    read -r
+    echo -en "${CYAN}$1${NC}" > /dev/tty
+    read -r < /dev/tty
 }
 
 [[ $EUID -eq 0 ]] || die "Must run as root (pipe to sudo bash, or run with sudo)"
@@ -332,12 +332,12 @@ if [[ -n "$ADMIN_KEY" ]]; then
 fi
 
 while true; do
-    echo -en "${RED}${BOLD}  Type 'I SAVED MY KEY' to confirm: ${NC}"
-    read -r response
+    echo -en "${RED}${BOLD}  Type 'I SAVED MY KEY' to confirm: ${NC}" > /dev/tty
+    read -r response < /dev/tty
     if [[ "$response" == "I SAVED MY KEY" ]]; then
         break
     fi
-    echo -e "  ${RED}You must type exactly: I SAVED MY KEY${NC}"
+    echo -e "  ${RED}You must type exactly: I SAVED MY KEY${NC}" > /dev/tty
 done
 
 echo ""
