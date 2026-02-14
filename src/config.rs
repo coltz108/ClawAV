@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use crate::secureclaw::SecureClawConfig;
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Config {
     pub general: GeneralConfig,
     pub slack: SlackConfig,
@@ -26,7 +26,7 @@ pub struct Config {
     pub netpolicy: NetPolicyConfig,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct PolicyConfig {
     pub enabled: bool,
     pub dir: String,
@@ -41,7 +41,7 @@ impl Default for PolicyConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct GeneralConfig {
     pub watched_user: Option<String>,  // Keep for backward compat
     #[serde(default)]
@@ -72,7 +72,7 @@ impl GeneralConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SlackConfig {
     pub enabled: Option<bool>,
     pub webhook_url: String,
@@ -82,13 +82,13 @@ pub struct SlackConfig {
     pub min_slack_level: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AuditdConfig {
     pub log_path: String,
     pub enabled: bool,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct NetworkConfig {
     pub log_path: String,
     pub log_prefix: String,
@@ -101,7 +101,7 @@ fn default_network_source() -> String {
     "auto".to_string()
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct FalcoConfig {
     pub enabled: bool,
     pub log_path: String,
@@ -116,7 +116,7 @@ impl Default for FalcoConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SamhainConfig {
     pub enabled: bool,
     pub log_path: String,
@@ -131,12 +131,12 @@ impl Default for SamhainConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ScansConfig {
     pub interval: u64,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ApiConfig {
     pub enabled: bool,
     pub bind: String,
@@ -153,7 +153,7 @@ impl Default for ApiConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ProxyConfig {
     pub enabled: bool,
     pub bind: String,
@@ -176,7 +176,7 @@ impl Default for ProxyConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct KeyMapping {
     #[serde(alias = "virtual")]
     pub virtual_key: String,
@@ -185,20 +185,20 @@ pub struct KeyMapping {
     pub upstream: String,
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct DlpConfig {
     #[serde(default)]
     pub patterns: Vec<DlpPattern>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DlpPattern {
     pub name: String,
     pub regex: String,
     pub action: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct NetPolicyConfig {
     pub enabled: bool,
     #[serde(default)]
@@ -234,5 +234,13 @@ impl Config {
         let config: Config = toml::from_str(&content)
             .with_context(|| "Failed to parse config")?;
         Ok(config)
+    }
+
+    pub fn save(&self, path: &Path) -> Result<()> {
+        let content = toml::to_string_pretty(self)
+            .with_context(|| "Failed to serialize config")?;
+        std::fs::write(path, content)
+            .with_context(|| format!("Failed to write config: {}", path.display()))?;
+        Ok(())
     }
 }

@@ -1,11 +1,11 @@
 use anyhow::{Context, Result};
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
 /// Root config pointing to the secureclaw vendor directory
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SecureClawConfig {
     pub enabled: bool,
     #[serde(default = "default_vendor_dir")]

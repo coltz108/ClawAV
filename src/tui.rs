@@ -1,6 +1,6 @@
 use anyhow::Result;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -11,8 +11,10 @@ use ratatui::{
 use std::io;
 use tokio::sync::mpsc;
 use std::time::Duration;
+use std::path::PathBuf;
 
 use crate::alerts::{Alert, AlertStore, Severity};
+use crate::config::Config;
 
 pub enum TuiEvent {
     Alert(Alert),
@@ -20,11 +22,36 @@ pub enum TuiEvent {
     Quit,
 }
 
+#[derive(Clone)]
+pub struct ConfigField {
+    pub name: String,
+    pub value: String,
+    pub section: String,
+    pub field_type: FieldType,
+}
+
+#[derive(Clone)]
+pub enum FieldType {
+    Text,
+    Bool,
+    Number,
+}
+
 pub struct App {
     pub alert_store: AlertStore,
     pub selected_tab: usize,
     pub should_quit: bool,
     pub tab_titles: Vec<String>,
+    // Config editor state
+    pub config: Option<Config>,
+    pub config_path: Option<PathBuf>,
+    pub config_sections: Vec<String>,
+    pub config_selected_section: usize,
+    pub config_fields: Vec<ConfigField>,
+    pub config_selected_field: usize,
+    pub config_editing: bool,
+    pub config_edit_buffer: String,
+    pub config_saved_message: Option<String>,
 }
 
 impl App {
@@ -39,25 +66,472 @@ impl App {
                 "Falco".into(),
                 "FIM".into(),
                 "System".into(),
+                "Config".into(),
             ],
+            config: None,
+            config_path: None,
+            config_sections: vec![
+                "general".into(), "slack".into(), "auditd".into(), "network".into(), 
+                "falco".into(), "samhain".into(), "api".into(), "scans".into(), 
+                "proxy".into(), "policy".into(), "secureclaw".into(), "netpolicy".into(),
+            ],
+            config_selected_section: 0,
+            config_fields: Vec::new(),
+            config_selected_field: 0,
+            config_editing: false,
+            config_edit_buffer: String::new(),
+            config_saved_message: None,
         }
     }
 
-    pub fn on_key(&mut self, key: KeyCode) {
+    pub fn load_config(&mut self, path: &PathBuf) -> Result<()> {
+        let config = Config::load(path)?;
+        self.config = Some(config);
+        self.config_path = Some(path.clone());
+        self.refresh_fields();
+        Ok(())
+    }
+
+    pub fn refresh_fields(&mut self) {
+        if let Some(ref config) = self.config {
+            let section = &self.config_sections[self.config_selected_section];
+            self.config_fields = get_section_fields(config, section);
+            // Reset field selection if necessary
+            if self.config_selected_field >= self.config_fields.len() && !self.config_fields.is_empty() {
+                self.config_selected_field = 0;
+            }
+        }
+    }
+
+    pub fn on_key(&mut self, key: KeyCode, modifiers: KeyModifiers) {
+        // Clear saved message on any keypress
+        if self.config_saved_message.is_some() {
+            self.config_saved_message = None;
+        }
+
         match key {
-            KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
-            KeyCode::Tab | KeyCode::Right => {
+            KeyCode::Char('q') | KeyCode::Esc if !self.config_editing => self.should_quit = true,
+            KeyCode::Tab | KeyCode::Right if !self.config_editing => {
                 self.selected_tab = (self.selected_tab + 1) % self.tab_titles.len();
             }
-            KeyCode::BackTab | KeyCode::Left => {
+            KeyCode::BackTab | KeyCode::Left if !self.config_editing => {
                 if self.selected_tab > 0 {
                     self.selected_tab -= 1;
                 } else {
                     self.selected_tab = self.tab_titles.len() - 1;
                 }
             }
+            // Config tab specific keys
+            _ if self.selected_tab == 5 => self.handle_config_key(key, modifiers),
             _ => {}
         }
+    }
+
+    fn handle_config_key(&mut self, key: KeyCode, modifiers: KeyModifiers) {
+        if self.config_editing {
+            // Handle editing mode
+            match key {
+                KeyCode::Enter => {
+                    // Confirm edit
+                    if let Some(ref mut config) = self.config {
+                        let section = &self.config_sections[self.config_selected_section];
+                        let field = &self.config_fields[self.config_selected_field];
+                        apply_field_to_config(config, section, &field.name, &self.config_edit_buffer);
+                        self.refresh_fields();
+                    }
+                    self.config_editing = false;
+                    self.config_edit_buffer.clear();
+                }
+                KeyCode::Esc => {
+                    // Cancel edit
+                    self.config_editing = false;
+                    self.config_edit_buffer.clear();
+                }
+                KeyCode::Backspace => {
+                    self.config_edit_buffer.pop();
+                }
+                KeyCode::Char(c) => {
+                    self.config_edit_buffer.push(c);
+                }
+                _ => {}
+            }
+        } else {
+            // Handle navigation mode
+            match (key, modifiers) {
+                (KeyCode::Char('s'), KeyModifiers::CONTROL) => {
+                    // Save config
+                    if let (Some(ref config), Some(ref path)) = (&self.config, &self.config_path) {
+                        if let Err(_) = config.save(path) {
+                            self.config_saved_message = Some("Save failed!".to_string());
+                        } else {
+                            self.config_saved_message = Some("Saved!".to_string());
+                        }
+                    }
+                }
+                (KeyCode::Up, _) => {
+                    if !self.config_fields.is_empty() && self.config_selected_field > 0 {
+                        self.config_selected_field -= 1;
+                    }
+                }
+                (KeyCode::Down, _) => {
+                    if !self.config_fields.is_empty() && self.config_selected_field < self.config_fields.len() - 1 {
+                        self.config_selected_field += 1;
+                    }
+                }
+                (KeyCode::Left, _) => {
+                    if self.config_selected_section > 0 {
+                        self.config_selected_section -= 1;
+                        self.config_selected_field = 0;
+                        self.refresh_fields();
+                    }
+                }
+                (KeyCode::Right, _) => {
+                    if self.config_selected_section < self.config_sections.len() - 1 {
+                        self.config_selected_section += 1;
+                        self.config_selected_field = 0;
+                        self.refresh_fields();
+                    }
+                }
+                (KeyCode::Enter, _) => {
+                    // Start editing
+                    if !self.config_fields.is_empty() {
+                        let field = &self.config_fields[self.config_selected_field];
+                        match field.field_type {
+                            FieldType::Bool => {
+                                // Toggle boolean values directly
+                                if let Some(ref mut config) = self.config {
+                                    let section = &self.config_sections[self.config_selected_section];
+                                    let new_value = if field.value == "true" { "false" } else { "true" };
+                                    apply_field_to_config(config, section, &field.name, new_value);
+                                    self.refresh_fields();
+                                }
+                            }
+                            _ => {
+                                // Start text editing for other types
+                                self.config_editing = true;
+                                self.config_edit_buffer = field.value.clone();
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+fn get_section_fields(config: &Config, section: &str) -> Vec<ConfigField> {
+    match section {
+        "general" => vec![
+            ConfigField {
+                name: "watched_user".to_string(),
+                value: config.general.watched_user.clone().unwrap_or_default(),
+                section: section.to_string(),
+                field_type: FieldType::Text,
+            },
+            ConfigField {
+                name: "watched_users".to_string(),
+                value: config.general.watched_users.join(","),
+                section: section.to_string(),
+                field_type: FieldType::Text,
+            },
+            ConfigField {
+                name: "watch_all_users".to_string(),
+                value: config.general.watch_all_users.to_string(),
+                section: section.to_string(),
+                field_type: FieldType::Bool,
+            },
+            ConfigField {
+                name: "min_alert_level".to_string(),
+                value: config.general.min_alert_level.clone(),
+                section: section.to_string(),
+                field_type: FieldType::Text,
+            },
+            ConfigField {
+                name: "log_file".to_string(),
+                value: config.general.log_file.clone(),
+                section: section.to_string(),
+                field_type: FieldType::Text,
+            },
+        ],
+        "slack" => vec![
+            ConfigField {
+                name: "enabled".to_string(),
+                value: config.slack.enabled.unwrap_or(false).to_string(),
+                section: section.to_string(),
+                field_type: FieldType::Bool,
+            },
+            ConfigField {
+                name: "webhook_url".to_string(),
+                value: config.slack.webhook_url.clone(),
+                section: section.to_string(),
+                field_type: FieldType::Text,
+            },
+            ConfigField {
+                name: "backup_webhook_url".to_string(),
+                value: config.slack.backup_webhook_url.clone(),
+                section: section.to_string(),
+                field_type: FieldType::Text,
+            },
+            ConfigField {
+                name: "channel".to_string(),
+                value: config.slack.channel.clone(),
+                section: section.to_string(),
+                field_type: FieldType::Text,
+            },
+            ConfigField {
+                name: "min_slack_level".to_string(),
+                value: config.slack.min_slack_level.clone(),
+                section: section.to_string(),
+                field_type: FieldType::Text,
+            },
+        ],
+        "auditd" => vec![
+            ConfigField {
+                name: "enabled".to_string(),
+                value: config.auditd.enabled.to_string(),
+                section: section.to_string(),
+                field_type: FieldType::Bool,
+            },
+            ConfigField {
+                name: "log_path".to_string(),
+                value: config.auditd.log_path.clone(),
+                section: section.to_string(),
+                field_type: FieldType::Text,
+            },
+        ],
+        "network" => vec![
+            ConfigField {
+                name: "enabled".to_string(),
+                value: config.network.enabled.to_string(),
+                section: section.to_string(),
+                field_type: FieldType::Bool,
+            },
+            ConfigField {
+                name: "log_path".to_string(),
+                value: config.network.log_path.clone(),
+                section: section.to_string(),
+                field_type: FieldType::Text,
+            },
+            ConfigField {
+                name: "log_prefix".to_string(),
+                value: config.network.log_prefix.clone(),
+                section: section.to_string(),
+                field_type: FieldType::Text,
+            },
+            ConfigField {
+                name: "source".to_string(),
+                value: config.network.source.clone(),
+                section: section.to_string(),
+                field_type: FieldType::Text,
+            },
+        ],
+        "falco" => vec![
+            ConfigField {
+                name: "enabled".to_string(),
+                value: config.falco.enabled.to_string(),
+                section: section.to_string(),
+                field_type: FieldType::Bool,
+            },
+            ConfigField {
+                name: "log_path".to_string(),
+                value: config.falco.log_path.clone(),
+                section: section.to_string(),
+                field_type: FieldType::Text,
+            },
+        ],
+        "samhain" => vec![
+            ConfigField {
+                name: "enabled".to_string(),
+                value: config.samhain.enabled.to_string(),
+                section: section.to_string(),
+                field_type: FieldType::Bool,
+            },
+            ConfigField {
+                name: "log_path".to_string(),
+                value: config.samhain.log_path.clone(),
+                section: section.to_string(),
+                field_type: FieldType::Text,
+            },
+        ],
+        "api" => vec![
+            ConfigField {
+                name: "enabled".to_string(),
+                value: config.api.enabled.to_string(),
+                section: section.to_string(),
+                field_type: FieldType::Bool,
+            },
+            ConfigField {
+                name: "bind".to_string(),
+                value: config.api.bind.clone(),
+                section: section.to_string(),
+                field_type: FieldType::Text,
+            },
+            ConfigField {
+                name: "port".to_string(),
+                value: config.api.port.to_string(),
+                section: section.to_string(),
+                field_type: FieldType::Number,
+            },
+        ],
+        "scans" => vec![
+            ConfigField {
+                name: "interval".to_string(),
+                value: config.scans.interval.to_string(),
+                section: section.to_string(),
+                field_type: FieldType::Number,
+            },
+        ],
+        "proxy" => vec![
+            ConfigField {
+                name: "enabled".to_string(),
+                value: config.proxy.enabled.to_string(),
+                section: section.to_string(),
+                field_type: FieldType::Bool,
+            },
+            ConfigField {
+                name: "bind".to_string(),
+                value: config.proxy.bind.clone(),
+                section: section.to_string(),
+                field_type: FieldType::Text,
+            },
+            ConfigField {
+                name: "port".to_string(),
+                value: config.proxy.port.to_string(),
+                section: section.to_string(),
+                field_type: FieldType::Number,
+            },
+        ],
+        "policy" => vec![
+            ConfigField {
+                name: "enabled".to_string(),
+                value: config.policy.enabled.to_string(),
+                section: section.to_string(),
+                field_type: FieldType::Bool,
+            },
+            ConfigField {
+                name: "dir".to_string(),
+                value: config.policy.dir.clone(),
+                section: section.to_string(),
+                field_type: FieldType::Text,
+            },
+        ],
+        "secureclaw" => vec![
+            ConfigField {
+                name: "enabled".to_string(),
+                value: config.secureclaw.enabled.to_string(),
+                section: section.to_string(),
+                field_type: FieldType::Bool,
+            },
+            ConfigField {
+                name: "vendor_dir".to_string(),
+                value: config.secureclaw.vendor_dir.clone(),
+                section: section.to_string(),
+                field_type: FieldType::Text,
+            },
+        ],
+        "netpolicy" => vec![
+            ConfigField {
+                name: "enabled".to_string(),
+                value: config.netpolicy.enabled.to_string(),
+                section: section.to_string(),
+                field_type: FieldType::Bool,
+            },
+            ConfigField {
+                name: "mode".to_string(),
+                value: config.netpolicy.mode.clone(),
+                section: section.to_string(),
+                field_type: FieldType::Text,
+            },
+            ConfigField {
+                name: "allowed_ports".to_string(),
+                value: config.netpolicy.allowed_ports.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(","),
+                section: section.to_string(),
+                field_type: FieldType::Text,
+            },
+        ],
+        _ => Vec::new(),
+    }
+}
+
+fn apply_field_to_config(config: &mut Config, section: &str, field_name: &str, value: &str) {
+    match section {
+        "general" => match field_name {
+            "watched_user" => config.general.watched_user = if value.is_empty() { None } else { Some(value.to_string()) },
+            "watched_users" => config.general.watched_users = value.split(',').filter(|s| !s.trim().is_empty()).map(|s| s.trim().to_string()).collect(),
+            "watch_all_users" => config.general.watch_all_users = value == "true",
+            "min_alert_level" => config.general.min_alert_level = value.to_string(),
+            "log_file" => config.general.log_file = value.to_string(),
+            _ => {}
+        },
+        "slack" => match field_name {
+            "enabled" => config.slack.enabled = Some(value == "true"),
+            "webhook_url" => config.slack.webhook_url = value.to_string(),
+            "backup_webhook_url" => config.slack.backup_webhook_url = value.to_string(),
+            "channel" => config.slack.channel = value.to_string(),
+            "min_slack_level" => config.slack.min_slack_level = value.to_string(),
+            _ => {}
+        },
+        "auditd" => match field_name {
+            "enabled" => config.auditd.enabled = value == "true",
+            "log_path" => config.auditd.log_path = value.to_string(),
+            _ => {}
+        },
+        "network" => match field_name {
+            "enabled" => config.network.enabled = value == "true",
+            "log_path" => config.network.log_path = value.to_string(),
+            "log_prefix" => config.network.log_prefix = value.to_string(),
+            "source" => config.network.source = value.to_string(),
+            _ => {}
+        },
+        "falco" => match field_name {
+            "enabled" => config.falco.enabled = value == "true",
+            "log_path" => config.falco.log_path = value.to_string(),
+            _ => {}
+        },
+        "samhain" => match field_name {
+            "enabled" => config.samhain.enabled = value == "true",
+            "log_path" => config.samhain.log_path = value.to_string(),
+            _ => {}
+        },
+        "api" => match field_name {
+            "enabled" => config.api.enabled = value == "true",
+            "bind" => config.api.bind = value.to_string(),
+            "port" => if let Ok(port) = value.parse::<u16>() { config.api.port = port; },
+            _ => {}
+        },
+        "scans" => match field_name {
+            "interval" => if let Ok(interval) = value.parse::<u64>() { config.scans.interval = interval; },
+            _ => {}
+        },
+        "proxy" => match field_name {
+            "enabled" => config.proxy.enabled = value == "true",
+            "bind" => config.proxy.bind = value.to_string(),
+            "port" => if let Ok(port) = value.parse::<u16>() { config.proxy.port = port; },
+            _ => {}
+        },
+        "policy" => match field_name {
+            "enabled" => config.policy.enabled = value == "true",
+            "dir" => config.policy.dir = value.to_string(),
+            _ => {}
+        },
+        "secureclaw" => match field_name {
+            "enabled" => config.secureclaw.enabled = value == "true",
+            "vendor_dir" => config.secureclaw.vendor_dir = value.to_string(),
+            _ => {}
+        },
+        "netpolicy" => match field_name {
+            "enabled" => config.netpolicy.enabled = value == "true",
+            "mode" => config.netpolicy.mode = value.to_string(),
+            "allowed_ports" => {
+                config.netpolicy.allowed_ports = value
+                    .split(',')
+                    .filter_map(|s| s.trim().parse::<u16>().ok())
+                    .collect();
+            },
+            _ => {}
+        },
+        _ => {}
     }
 }
 
@@ -187,6 +661,74 @@ fn render_system_tab(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(paragraph, area);
 }
 
+fn render_config_tab(f: &mut Frame, area: Rect, app: &App) {
+    if app.config.is_none() {
+        let text = vec![
+            Line::from(vec![
+                Span::styled("No config loaded", Style::default().fg(Color::Red).bold()),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::raw("Config file path not provided or failed to load."),
+            ]),
+        ];
+        let paragraph = Paragraph::new(text)
+            .block(Block::default().borders(Borders::ALL).title(" Config Editor "));
+        f.render_widget(paragraph, area);
+        return;
+    }
+
+    // Split into left (sections list, 25%) and right (fields, 75%)
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(25), Constraint::Percentage(75)])
+        .split(area);
+
+    // Left: section list
+    let section_items: Vec<ListItem> = app.config_sections.iter().enumerate().map(|(i, s)| {
+        let style = if i == app.config_selected_section {
+            Style::default().fg(Color::Cyan).bold().add_modifier(Modifier::REVERSED)
+        } else {
+            Style::default().fg(Color::White)
+        };
+        ListItem::new(format!("  [{}]", s)).style(style)
+    }).collect();
+
+    let sections_list = List::new(section_items)
+        .block(Block::default().borders(Borders::ALL).title(" Sections "));
+    f.render_widget(sections_list, chunks[0]);
+
+    // Right: fields for selected section
+    let field_items: Vec<ListItem> = app.config_fields.iter().enumerate().map(|(i, field)| {
+        let is_selected = i == app.config_selected_field;
+        let is_editing = is_selected && app.config_editing;
+
+        let value_display = if is_editing {
+            format!("{}▌", app.config_edit_buffer)
+        } else {
+            field.value.clone()
+        };
+
+        let style = if is_selected {
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::REVERSED)
+        } else {
+            Style::default().fg(Color::White)
+        };
+
+        ListItem::new(format!("  {}: {}", field.name, value_display)).style(style)
+    }).collect();
+
+    let title = if let Some(ref msg) = app.config_saved_message {
+        format!(" {} — {} ", app.config_sections[app.config_selected_section], msg)
+    } else {
+        format!(" [{}] — Enter to edit, Ctrl+S to save ", app.config_sections[app.config_selected_section])
+    };
+
+    let fields_list = List::new(field_items)
+        .block(Block::default().borders(Borders::ALL).title(title));
+    f.render_widget(fields_list, chunks[1]);
+}
+
 fn ui(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -209,11 +751,12 @@ fn ui(f: &mut Frame, app: &App) {
         2 => render_falco_tab(f, chunks[1], app),
         3 => render_fim_tab(f, chunks[1], app),
         4 => render_system_tab(f, chunks[1], app),
+        5 => render_config_tab(f, chunks[1], app),
         _ => {}
     }
 }
 
-pub async fn run_tui(mut alert_rx: mpsc::Receiver<Alert>) -> Result<()> {
+pub async fn run_tui(mut alert_rx: mpsc::Receiver<Alert>, config_path: Option<PathBuf>) -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
@@ -222,6 +765,13 @@ pub async fn run_tui(mut alert_rx: mpsc::Receiver<Alert>) -> Result<()> {
 
     let mut app = App::new();
 
+    // Load config if provided
+    if let Some(path) = config_path {
+        if let Err(e) = app.load_config(&path) {
+            eprintln!("Failed to load config: {}", e);
+        }
+    }
+
     loop {
         terminal.draw(|f| ui(f, &app))?;
 
@@ -229,7 +779,7 @@ pub async fn run_tui(mut alert_rx: mpsc::Receiver<Alert>) -> Result<()> {
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
-                    app.on_key(key.code);
+                    app.on_key(key.code, key.modifiers);
                 }
             }
         }

@@ -278,7 +278,7 @@ async fn main() -> Result<()> {
         }
     } else {
         // Run TUI (blocks until quit)
-        tui::run_tui(alert_rx).await?;
+        tui::run_tui(alert_rx, Some(config_path.clone())).await?;
     }
 
     Ok(())
