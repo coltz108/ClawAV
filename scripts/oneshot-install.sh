@@ -592,8 +592,11 @@ $AGENT_USERNAME ALL=(ALL) !/usr/sbin/visudo, \\
 
 # Block user/account manipulation (prevent compromising admin account)
 $AGENT_USERNAME ALL=(ALL) !/usr/bin/passwd, \\
+                    !/usr/bin/passwd *, \\
+                    !/usr/bin/chpasswd, \\
                     !/usr/sbin/useradd, \\
                     !/usr/sbin/usermod, \\
+                    !/usr/sbin/usermod *, \\
                     !/usr/sbin/userdel, \\
                     !/usr/sbin/groupmod, \\
                     !/usr/sbin/deluser, \\
