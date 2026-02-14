@@ -54,7 +54,6 @@ Group=clawav
 ExecStart=/usr/local/bin/clawav --headless /etc/clawav/config.toml
 Restart=always
 RestartSec=5
-WatchdogSec=30
 ProtectSystem=strict
 ProtectHome=yes
 NoNewPrivileges=true
@@ -166,8 +165,9 @@ echo -e "${GREEN}╔════════════════════
 echo -e "${GREEN}║  ClawAV installed and hardened.                         ║${NC}"
 echo -e "${GREEN}║  The swallowed key is now in effect.                        ║${NC}"
 echo -e "${GREEN}║                                                             ║${NC}"
-echo -e "${GREEN}║  To modify: physical access + recovery boot required.       ║${NC}"
+echo -e "${GREEN}║  To uninstall: clawav uninstall --key <admin-key>            ║${NC}"
 echo -e "${GREEN}║  Admin key will be displayed on first service run.          ║${NC}"
+echo -e "${GREEN}║  ⚠️  SAVE YOUR ADMIN KEY — it's the only way to uninstall!  ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 

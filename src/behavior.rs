@@ -229,8 +229,19 @@ pub fn classify_behavior(event: &ParsedEvent) -> Option<(BehaviorCategory, Sever
         }
 
         // --- CRITICAL: Data Exfiltration via network tools ---
+        // Skip if target is a known-safe host
+        const SAFE_HOSTS: &[&str] = &[
+            "gottamolt.gg", "mahamedia.us", "localhost", "127.0.0.1",
+            "api.anthropic.com", "api.openai.com", "github.com",
+            "hooks.slack.com", "amazonaws.com", "registry.npmjs.org",
+            "crates.io", "pypi.org", "api.brave.com",
+        ];
         if EXFIL_COMMANDS.iter().any(|&c| binary.eq_ignore_ascii_case(c)) {
-            return Some((BehaviorCategory::DataExfiltration, Severity::Critical));
+            let full_cmd_lower = args.join(" ").to_lowercase();
+            let is_safe = SAFE_HOSTS.iter().any(|&h| full_cmd_lower.contains(h));
+            if !is_safe {
+                return Some((BehaviorCategory::DataExfiltration, Severity::Critical));
+            }
         }
 
         // --- DNS exfiltration — tools that can encode data in DNS queries ---

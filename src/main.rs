@@ -46,7 +46,8 @@ COMMANDS:
     setup                Install ClawAV as a system service
     setup --source       Build from source + install
     setup --auto         Install + start service automatically
-    harden               Apply tamper-proof "swallowed key" hardening (⚠️ irreversible)
+    harden               Apply tamper-proof "swallowed key" hardening
+    uninstall            Reverse hardening + remove ClawAV (requires admin key)
     sync                 Update SecureClaw pattern databases
     logs                 Tail the service logs (journalctl)
     help                 Show this help message
@@ -144,6 +145,9 @@ async fn main() -> Result<()> {
         }
         "harden" => {
             return run_script("install.sh", &rest_args);
+        }
+        "uninstall" => {
+            return run_script("uninstall.sh", &rest_args);
         }
         "sync" => {
             return run_script("sync-secureclaw.sh", &rest_args);
