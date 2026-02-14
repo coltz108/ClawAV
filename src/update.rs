@@ -205,6 +205,19 @@ fn hostname() -> String {
         .to_string()
 }
 
+/// Parse --binary flag from args
+fn get_custom_binary_path(args: &[String]) -> Option<String> {
+    for (i, arg) in args.iter().enumerate() {
+        if arg == "--binary" {
+            return args.get(i + 1).cloned();
+        }
+        if let Some(path) = arg.strip_prefix("--binary=") {
+            return Some(path.to_string());
+        }
+    }
+    None
+}
+
 /// Main entry point for `clawav update`
 pub fn run_update(args: &[String]) -> Result<()> {
     let current_version = env!("CARGO_PKG_VERSION");
@@ -212,39 +225,60 @@ pub fn run_update(args: &[String]) -> Result<()> {
     eprintln!("Current version: v{}", current_version);
     eprintln!();
 
-    // Check if --check flag (just check, don't update)
     let check_only = args.iter().any(|a| a == "--check");
+    let custom_binary = get_custom_binary_path(args);
 
-    // 1. Authenticate
-    if !check_only {
+    // Custom binary path requires admin key (no CI verification available)
+    // GitHub release path does NOT require admin key (SHA256 checksum is sufficient)
+    let (binary_data, version_tag) = if let Some(ref binary_path) = custom_binary {
+        eprintln!("Custom binary install: {}", binary_path);
+        eprintln!("⚠️  No CI verification — admin key required");
+        eprintln!();
+
         let key = get_admin_key(args)?;
         if !verify_admin_key(&key)? {
-            bail!("❌ Invalid admin key");
+            bail!("❌ Invalid admin key — custom binary install refused");
         }
         eprintln!("✅ Admin key verified");
         eprintln!();
-    }
 
-    // 2. Check latest release
-    eprintln!("Checking GitHub releases...");
-    let (tag, download_url, sha256_url) = fetch_latest_release()?;
-    let remote_version = tag.strip_prefix('v').unwrap_or(&tag);
+        let data = fs::read(binary_path)
+            .with_context(|| format!("Failed to read custom binary: {}", binary_path))?;
+        eprintln!("Read {} bytes from {}", data.len(), binary_path);
 
-    eprintln!("Latest release: {} ({})", tag, asset_name());
+        (data, "custom".to_string())
+    } else {
+        // GitHub release path — checksum verification is the trust anchor
+        eprintln!("Checking GitHub releases...");
+        let (tag, download_url, sha256_url) = fetch_latest_release()?;
+        let remote_version = tag.strip_prefix('v').unwrap_or(&tag);
 
-    if remote_version == current_version {
-        eprintln!("✅ Already running the latest version");
-        return Ok(());
-    }
+        eprintln!("Latest release: {} ({})", tag, asset_name());
 
-    eprintln!("Update available: v{} → {}", current_version, tag);
+        if remote_version == current_version {
+            eprintln!("✅ Already running the latest version");
+            return Ok(());
+        }
+
+        eprintln!("Update available: v{} → {}", current_version, tag);
+
+        if check_only {
+            return Ok(());
+        }
+
+        if sha256_url.is_none() {
+            bail!("❌ Release has no checksum file — refusing to install unverified binary");
+        }
+
+        let data = download_and_verify(&download_url, sha256_url.as_deref())?;
+        (data, tag)
+    };
 
     if check_only {
         return Ok(());
     }
 
-    // 3. Download and verify
-    let binary_data = download_and_verify(&download_url, sha256_url.as_deref())?;
+    let binary_data = binary_data;
 
     // 4. Replace binary (chattr dance)
     let binary_path = current_binary_path()?;
@@ -272,7 +306,7 @@ pub fn run_update(args: &[String]) -> Result<()> {
     eprintln!("✅ Binary replaced");
 
     // 5. Notify Slack
-    notify_slack(&format!("v{}", current_version), &tag);
+    notify_slack(&format!("v{}", current_version), &version_tag);
 
     // 6. Restart service
     eprintln!("Restarting clawav service...");
@@ -283,7 +317,7 @@ pub fn run_update(args: &[String]) -> Result<()> {
     }
 
     eprintln!();
-    eprintln!("🎉 Updated to {}", tag);
+    eprintln!("🎉 Updated to {}", version_tag);
 
     Ok(())
 }
