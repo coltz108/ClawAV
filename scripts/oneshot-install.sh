@@ -105,7 +105,7 @@ curl -sSL -f -o "$TMPDIR/policies/clawsudo.yaml" "https://raw.githubusercontent.
 log "Downloading SecureClaw pattern databases..."
 SECURECLAW_BASE="https://raw.githubusercontent.com/adversa-ai/secureclaw/main/secureclaw/skill/configs"
 mkdir -p "$TMPDIR/secureclaw"
-for pattern in injection_patterns.json command_patterns.json privacy_rules.json supply_chain_iocs.json; do
+for pattern in injection-patterns.json dangerous-commands.json privacy-rules.json supply-chain-ioc.json; do
     curl -sSL -f -o "$TMPDIR/secureclaw/$pattern" "$SECURECLAW_BASE/$pattern" 2>/dev/null && \
         log "  ✓ $pattern" || \
         warn "  ✗ $pattern (non-fatal)"
