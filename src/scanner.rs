@@ -1557,7 +1557,7 @@ fn check_path_permissions(path: &str, max_mode: u32, label: &str) -> ScanResult 
     match std::fs::metadata(path) {
         Ok(meta) => {
             let mode = meta.permissions().mode() & 0o777;
-            if mode <= max_mode {
+            if (mode & !max_mode) == 0 {
                 ScanResult::new(
                     &format!("openclaw:perms:{}", label),
                     ScanStatus::Pass,
