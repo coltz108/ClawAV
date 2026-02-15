@@ -278,6 +278,7 @@ Real-time file watcher using `notify` (inotify on Linux):
 
 **Key types:** `ScanResult` (category, status, details, timestamp), `ScanStatus` (Pass/Warn/Fail)
 **Integration:** `ScanResult::to_alert()` converts Warn→Warning, Fail→Critical
+**Note:** Function names and category names sometimes differ (e.g., `scan_zombie_processes()` → category `"process_health"`, `scan_open_file_descriptors()` → category `"open_fds"`)
 
 ### `policy.rs`
 
@@ -316,6 +317,8 @@ Ratatui-based terminal UI with 6 tabs:
 - **Config** — Interactive config editor (sidebar sections + field editor, Ctrl+S to save with sudo support)
 
 Has a sudo popup modal for privileged operations (saving config to immutable files, installing Falco/Samhain).
+
+**Config editor sections:** general, slack, auditd, network, falco, samhain, api, scans, proxy, policy, secureclaw, netpolicy. Note: `sentinel`, `ssh`, and `auto_update` are NOT exposed in the TUI config editor.
 
 ### `bin/clawsudo.rs`
 
