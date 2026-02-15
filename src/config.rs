@@ -427,6 +427,22 @@ impl Default for SentinelConfig {
                     patterns: vec!["SKILL.md".to_string()],
                     policy: WatchPolicy::Watched,
                 },
+                // OpenClaw credential and config monitoring
+                WatchPathConfig {
+                    path: "/home/openclaw/.openclaw/openclaw.json".to_string(),
+                    patterns: vec!["*".to_string()],
+                    policy: WatchPolicy::Watched,
+                },
+                WatchPathConfig {
+                    path: "/home/openclaw/.openclaw/credentials".to_string(),
+                    patterns: vec!["*.json".to_string()],
+                    policy: WatchPolicy::Protected,
+                },
+                WatchPathConfig {
+                    path: "/home/openclaw/.openclaw/agents/main/agent/auth-profiles.json".to_string(),
+                    patterns: vec!["*".to_string()],
+                    policy: WatchPolicy::Protected,
+                },
             ],
             quarantine_dir: default_quarantine_dir(),
             shadow_dir: default_shadow_dir(),
@@ -527,5 +543,18 @@ mod tests {
         assert!(!config.enabled);
         assert_eq!(config.config_path, "/tmp/test.json");
         assert!(!config.audit_on_scan);
+    }
+
+    #[test]
+    fn test_default_sentinel_includes_openclaw_creds() {
+        let config = SentinelConfig::default();
+        let paths: Vec<&str> = config.watch_paths.iter()
+            .map(|w| w.path.as_str()).collect();
+        assert!(paths.iter().any(|p| p.contains(".openclaw/credentials")),
+            "Should watch OpenClaw credentials dir");
+        assert!(paths.iter().any(|p| p.contains("openclaw.json")),
+            "Should watch OpenClaw config file");
+        assert!(paths.iter().any(|p| p.contains("auth-profiles.json")),
+            "Should watch auth profiles");
     }
 }
