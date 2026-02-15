@@ -104,8 +104,20 @@ pub fn is_log_rotation(file_path: &str) -> bool {
 /// Resolve which WatchPolicy applies to a path, if any.
 fn policy_for_path(config: &SentinelConfig, path: &str) -> Option<WatchPolicy> {
     for wp in &config.watch_paths {
-        if path == wp.path || path.starts_with(&wp.path) {
+        if path == wp.path {
             return Some(wp.policy.clone());
+        }
+        // Directory prefix match — check if file matches patterns
+        if path.starts_with(&wp.path) {
+            let filename = Path::new(path)
+                .file_name()
+                .map(|f| f.to_string_lossy().to_string())
+                .unwrap_or_default();
+            for pattern in &wp.patterns {
+                if pattern == "*" || filename == *pattern {
+                    return Some(wp.policy.clone());
+                }
+            }
         }
     }
     None
@@ -268,10 +280,16 @@ impl Sentinel {
         let mut watched_dirs = std::collections::HashSet::new();
         for wp in &self.config.watch_paths {
             let p = Path::new(&wp.path);
-            let dir = if p.is_dir() { p } else { p.parent().unwrap_or(p) };
-            if watched_dirs.insert(dir.to_path_buf()) {
-                if dir.exists() {
-                    watcher.watch(dir, RecursiveMode::NonRecursive)?;
+            if p.is_dir() {
+                if watched_dirs.insert(p.to_path_buf()) {
+                    watcher.watch(p, RecursiveMode::Recursive)?;
+                }
+            } else {
+                let dir = p.parent().unwrap_or(p);
+                if watched_dirs.insert(dir.to_path_buf()) {
+                    if dir.exists() {
+                        watcher.watch(dir, RecursiveMode::NonRecursive)?;
+                    }
                 }
             }
         }
@@ -472,6 +490,49 @@ mod tests {
         assert_eq!(alert.severity, Severity::Info);
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_default_config_heartbeat_watched() {
+        let config = SentinelConfig::default();
+        let hb = config.watch_paths.iter().find(|w| w.path.ends_with("HEARTBEAT.md")).unwrap();
+        assert!(matches!(hb.policy, WatchPolicy::Watched));
+    }
+
+    #[test]
+    fn test_default_config_identity_protected() {
+        let config = SentinelConfig::default();
+        let id = config.watch_paths.iter().find(|w| w.path.ends_with("IDENTITY.md")).unwrap();
+        assert!(matches!(id.policy, WatchPolicy::Protected));
+    }
+
+    #[test]
+    fn test_default_config_skills_dir_protected() {
+        let config = SentinelConfig::default();
+        let sk = config.watch_paths.iter().find(|w| w.path.contains("superpowers/skills")).unwrap();
+        assert!(matches!(sk.policy, WatchPolicy::Protected));
+        assert_eq!(sk.patterns, vec!["SKILL.md".to_string()]);
+    }
+
+    #[test]
+    fn test_policy_for_path_exact_match() {
+        let config = SentinelConfig::default();
+        let policy = policy_for_path(&config, "/home/openclaw/.openclaw/workspace/SOUL.md");
+        assert!(matches!(policy, Some(WatchPolicy::Protected)));
+    }
+
+    #[test]
+    fn test_policy_for_path_directory_pattern_match() {
+        let config = SentinelConfig::default();
+        let policy = policy_for_path(&config, "/home/openclaw/.openclaw/workspace/superpowers/skills/some_skill/SKILL.md");
+        assert!(matches!(policy, Some(WatchPolicy::Protected)));
+    }
+
+    #[test]
+    fn test_policy_for_path_directory_pattern_reject() {
+        let config = SentinelConfig::default();
+        let policy = policy_for_path(&config, "/home/openclaw/.openclaw/workspace/superpowers/skills/some_skill/README.md");
+        assert!(policy.is_none());
     }
 
     #[test]
