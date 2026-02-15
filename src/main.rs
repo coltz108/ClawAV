@@ -194,8 +194,7 @@ fn ensure_root() {
     if unsafe { libc::getuid() } != 0
         && !matches!(subcommand, "help" | "--help" | "-h" | "version" | "--version" | "-V")
     {
-        eprintln!("🛡️  ClawAV requires root privileges.");
-        eprintln!("   Enter your password to continue:\n");
+        eprintln!("🛡️  ClawAV requires root privileges. Escalating via sudo...\n");
         let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("clawav"));
         let status = std::process::Command::new("sudo")
             .arg("--")
