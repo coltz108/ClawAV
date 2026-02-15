@@ -601,6 +601,26 @@ async fn async_main() -> Result<()> {
         });
     }
 
+    // Spawn real-time file sentinel
+    if config.sentinel.enabled {
+        let sentinel_config = config.sentinel.clone();
+        let sentinel_tx = raw_tx.clone();
+        let secureclaw_engine = crate::secureclaw::SecureClawEngine::load(
+            std::path::Path::new("/etc/clawav/secureclaw")
+        ).ok().map(std::sync::Arc::new);
+        
+        tokio::spawn(async move {
+            match crate::sentinel::Sentinel::new(sentinel_config, sentinel_tx, secureclaw_engine) {
+                Ok(sentinel) => {
+                    if let Err(e) = sentinel.run().await {
+                        eprintln!("Sentinel error: {}", e);
+                    }
+                }
+                Err(e) => eprintln!("Failed to start sentinel: {}", e),
+            }
+        });
+    }
+
     // Send startup alert (through aggregator)
     let startup = Alert::new(Severity::Info, "system", "ClawAV watchdog started");
     let _ = raw_tx.send(startup).await;
