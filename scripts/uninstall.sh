@@ -139,7 +139,9 @@ sudo systemctl disable clawav 2>/dev/null || true
 # ── 2. Remove immutable attributes ───────────────────────────────────────────
 log "Removing immutable attributes..."
 sudo chattr -i /usr/local/bin/clawav 2>/dev/null || true
+sudo chattr -i /usr/local/bin/clawsudo 2>/dev/null || true
 sudo chattr -i /etc/clawav/config.toml 2>/dev/null || true
+sudo chattr -i /etc/clawav/admin.key.hash 2>/dev/null || true
 sudo chattr -i /etc/systemd/system/clawav.service 2>/dev/null || true
 sudo chattr -i /etc/sudoers.d/clawav-deny 2>/dev/null || true
 
