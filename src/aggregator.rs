@@ -180,6 +180,14 @@ pub async fn run_aggregator(
     let mut aggregator = Aggregator::new(config);
     let mut cleanup_counter: u32 = 0;
 
+    // Initialize JSONL alert log path
+    let alerts_log_path = if unsafe { libc::getuid() } == 0 {
+        "/var/log/clawav/alerts.jsonl".to_string()
+    } else {
+        format!("/tmp/clawav-{}/alerts.jsonl", unsafe { libc::getuid() })
+    };
+    let _ = std::fs::create_dir_all(std::path::Path::new(&alerts_log_path).parent().unwrap_or(std::path::Path::new("/tmp")));
+
     // Initialize audit chain
     let chain_path = if unsafe { libc::getuid() } == 0 {
         "/var/log/clawav/audit.chain".to_string()
@@ -203,6 +211,19 @@ pub async fn run_aggregator(
                 }
             }
 
+            // Persist to JSONL log
+            {
+                use std::io::Write;
+                if let Ok(mut file) = std::fs::OpenOptions::new()
+                    .create(true).append(true)
+                    .open(&alerts_log_path)
+                {
+                    if let Ok(json) = serde_json::to_string(&alert) {
+                        let _ = writeln!(file, "{}", json);
+                    }
+                }
+            }
+
             // Forward to API alert store
             {
                 let mut store = api_store.lock().await;
@@ -222,6 +243,13 @@ pub async fn run_aggregator(
         cleanup_counter += 1;
         if cleanup_counter >= 100 {
             aggregator.cleanup();
+            // Rotate JSONL log if over 10MB
+            if let Ok(meta) = std::fs::metadata(&alerts_log_path) {
+                if meta.len() > 10_000_000 {
+                    let rotated = format!("{}.1", alerts_log_path);
+                    let _ = std::fs::rename(&alerts_log_path, &rotated);
+                }
+            }
             cleanup_counter = 0;
         }
     }
@@ -289,6 +317,14 @@ mod tests {
 
         assert!(agg.process(a1).is_some());
         assert!(agg.process(a2).is_some()); // different commands, different shape
+    }
+
+    #[test]
+    fn test_alert_serializes_to_json() {
+        let alert = Alert::new(Severity::Warning, "test", "hello world");
+        let json = serde_json::to_string(&alert).unwrap();
+        assert!(json.contains("hello world"));
+        assert!(json.contains("test"));
     }
 
     #[test]
