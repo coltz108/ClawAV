@@ -501,6 +501,32 @@ pub async fn run_auto_updater(alert_tx: mpsc::Sender<Alert>, interval_secs: u64,
             let _ = run_cmd("chattr", &["+i", &binary_path.to_string_lossy()]);
             let _ = run_cmd("chattr", &["+i", "/etc/clawav/admin.key.hash"]);
 
+            // Update tray binary if installed
+            if std::path::Path::new("/usr/local/bin/clawav-tray").exists() {
+                let tray_asset = format!("clawav-tray-{}-linux", if cfg!(target_arch = "aarch64") { "aarch64" } else { "x86_64" });
+                let tray_url = format!("https://github.com/{}/releases/download/{}/{}", GITHUB_REPO, tag, tray_asset);
+                match tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
+                    let client = reqwest::blocking::Client::builder().user_agent("clawav-updater").build()?;
+                    Ok(client.get(&tray_url).send()?.error_for_status()?.bytes()?.to_vec())
+                }).await {
+                    Ok(Ok(tray_data)) => {
+                        let tray_path = std::path::PathBuf::from("/usr/local/bin/clawav-tray");
+                        let tray_tmp = tray_path.with_extension("new");
+                        if fs::write(&tray_tmp, &tray_data).is_ok() {
+                            #[cfg(unix)]
+                            {
+                                use std::os::unix::fs::PermissionsExt;
+                                let _ = fs::set_permissions(&tray_tmp, fs::Permissions::from_mode(0o755));
+                            }
+                            let _ = run_cmd("chattr", &["-i", "/usr/local/bin/clawav-tray"]);
+                            let _ = fs::rename(&tray_tmp, &tray_path);
+                            let _ = run_cmd("chattr", &["+i", "/usr/local/bin/clawav-tray"]);
+                        }
+                    }
+                    _ => {} // Tray update is best-effort
+                }
+            }
+
             let _ = tx.send(Alert::new(
                 Severity::Info, "auto-update",
                 &format!("Updated to {}, restarting...", tag),

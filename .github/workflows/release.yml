@@ -37,18 +37,33 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
 
-      - name: Install D-Bus dev libs (for tray feature, native only)
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+      - name: Install D-Bus dev libs
+        run: |
+          sudo apt-get update
+          if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+            # Cross-compile: use cross tool with Docker for proper sysroot
+            cargo install cross --git https://github.com/cross-rs/cross || true
+          else
+            sudo apt-get install -y libdbus-1-dev pkg-config
+          fi
 
       - name: Build (default features)
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Build tray binary (native x86_64 only)
+      - name: Build tray binary (x86_64 native)
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: cargo build --release --target ${{ matrix.target }} --features tray --bin clawav-tray || echo "::warning::Tray build failed (optional)"
+
+      - name: Build tray binary (aarch64 via cross)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          if command -v cross &>/dev/null; then
+            cross build --release --target ${{ matrix.target }} --features tray --bin clawav-tray || echo "::warning::Tray cross-build failed (optional)"
+          else
+            echo "::warning::cross not available, skipping aarch64 tray build"
+          fi
 
       - name: Package binaries
         run: |
