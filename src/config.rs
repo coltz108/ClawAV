@@ -24,6 +24,18 @@ pub struct Config {
     pub secureclaw: SecureClawConfig,
     #[serde(default)]
     pub netpolicy: NetPolicyConfig,
+    #[serde(default)]
+    pub ssh: SshConfig,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct SshConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+fn default_true() -> bool { true }
+impl Default for SshConfig {
+    fn default() -> Self { Self { enabled: true } }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

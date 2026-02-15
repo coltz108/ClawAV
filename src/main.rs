@@ -466,6 +466,16 @@ async fn async_main() -> Result<()> {
         });
     }
 
+    // Spawn SSH login monitor
+    if config.ssh.enabled {
+        let tx = raw_tx.clone();
+        tokio::spawn(async move {
+            if let Err(e) = journald::tail_journald_ssh(tx).await {
+                eprintln!("SSH monitor error: {}", e);
+            }
+        });
+    }
+
     // Spawn proxy server if enabled
     if config.proxy.enabled {
         let proxy_config = config.proxy.clone();
