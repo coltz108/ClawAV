@@ -1,4 +1,4 @@
-# ClawAV Noise Fixes + LD_PRELOAD Detection — Implementation Plan
+# ClawTower Noise Fixes + LD_PRELOAD Detection — Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
@@ -13,7 +13,7 @@
 ### Task 1: Disable Falco/Samhain (config-only)
 
 **Files:**
-- Modify: `/etc/clawav/config.toml`
+- Modify: `/etc/clawtower/config.toml`
 
 **Step 1: Edit config**
 
@@ -30,17 +30,17 @@ log_path = "/var/log/samhain/samhain.log"
 
 Note: This requires `sudo` since the config is immutable. The steps are:
 ```bash
-sudo chattr -i /etc/clawav/config.toml
+sudo chattr -i /etc/clawtower/config.toml
 # make edits
-sudo chattr +i /etc/clawav/config.toml
-sudo systemctl restart clawav
+sudo chattr +i /etc/clawtower/config.toml
+sudo systemctl restart clawtower
 ```
 
 **Step 2: Verify**
 
 ```bash
 sleep 10
-tail -5 /var/log/clawav/alerts.jsonl | jq -r '.source + ": " + .message' | grep -i "falco\|samhain"
+tail -5 /var/log/clawtower/alerts.jsonl | jq -r '.source + ": " + .message' | grep -i "falco\|samhain"
 ```
 Expected: No new falco/samhain "Waiting for" messages.
 
@@ -48,7 +48,7 @@ Expected: No new falco/samhain "Waiting for" messages.
 
 Also update `config.example.yaml` to note these are optional:
 ```bash
-cd /home/openclaw/.openclaw/workspace/projects/ClawAV
+cd /home/openclaw/.openclaw/workspace/projects/ClawTower
 git add -A && git commit -m "config: disable falco/samhain (not installed)"
 ```
 
@@ -66,7 +66,7 @@ git add -A && git commit -m "config: disable falco/samhain (not installed)"
 The `exclude_args` in `block-data-exfiltration` already includes `wttr.in` and `api.open-meteo.com`. The noise analysis says these still fire — check if the exclude is working:
 
 ```bash
-cd /home/openclaw/.openclaw/workspace/projects/ClawAV
+cd /home/openclaw/.openclaw/workspace/projects/ClawTower
 grep -A 30 "block-data-exfiltration" policies/default.yaml | grep -i "wttr\|open-meteo\|claw.local"
 ```
 
@@ -84,9 +84,9 @@ exclude_args:
 **Step 3: Copy updated policy to live config**
 
 ```bash
-sudo chattr -i /etc/clawav/config.toml
-sudo cp policies/default.yaml /etc/clawav/policies/default.yaml
-sudo chattr +i /etc/clawav/config.toml
+sudo chattr -i /etc/clawtower/config.toml
+sudo cp policies/default.yaml /etc/clawtower/policies/default.yaml
+sudo chattr +i /etc/clawtower/config.toml
 ```
 
 **Step 4: Commit**
@@ -139,7 +139,7 @@ Remove `command_contains` entirely — the `command` exact binary match already 
 **Step 3: Copy to live and commit**
 
 ```bash
-sudo cp policies/default.yaml /etc/clawav/policies/default.yaml
+sudo cp policies/default.yaml /etc/clawtower/policies/default.yaml
 git add policies/default.yaml && git commit -m "policy: fix detect-scheduled-tasks false positive on cat"
 ```
 
@@ -147,44 +147,44 @@ git add policies/default.yaml && git commit -m "policy: fix detect-scheduled-tas
 
 ---
 
-### Task 4: Fix deny-clawav-config-write (policy YAML)
+### Task 4: Fix deny-clawtower-config-write (policy YAML)
 
 **Files:**
-- Modify: `policies/default.yaml` (the `deny-clawav-config-write` rule)
+- Modify: `policies/default.yaml` (the `deny-clawtower-config-write` rule)
 
 **Step 1: Read current rule**
 
 ```bash
-grep -A 8 "deny-clawav-config-write" policies/default.yaml
+grep -A 8 "deny-clawtower-config-write" policies/default.yaml
 ```
 
-Current uses `file_access` which triggers on ANY access (read or write) to `/etc/clawav/config.toml`.
+Current uses `file_access` which triggers on ANY access (read or write) to `/etc/clawtower/config.toml`.
 
 **Step 2: Change to command-based detection**
 
 Replace file_access with command_contains that only matches write operations:
 
 ```yaml
-  - name: "deny-clawav-config-write"
-    description: "Detect writes to ClawAV config files"
+  - name: "deny-clawtower-config-write"
+    description: "Detect writes to ClawTower config files"
     match:
       command_contains:
-        - "sed -i /etc/clawav/"
-        - "tee /etc/clawav/"
-        - "vim /etc/clawav/"
-        - "nano /etc/clawav/"
-        - "vi /etc/clawav/"
-        - "cp * /etc/clawav/"
-        - "mv * /etc/clawav/"
-        - "chattr -i /etc/clawav/"
-        - "> /etc/clawav/"
+        - "sed -i /etc/clawtower/"
+        - "tee /etc/clawtower/"
+        - "vim /etc/clawtower/"
+        - "nano /etc/clawtower/"
+        - "vi /etc/clawtower/"
+        - "cp * /etc/clawtower/"
+        - "mv * /etc/clawtower/"
+        - "chattr -i /etc/clawtower/"
+        - "> /etc/clawtower/"
     action: critical
 ```
 
 **Step 3: Copy to live and commit**
 
 ```bash
-sudo cp policies/default.yaml /etc/clawav/policies/default.yaml
+sudo cp policies/default.yaml /etc/clawtower/policies/default.yaml
 git add policies/default.yaml && git commit -m "policy: fix config-write rule to not trigger on reads"
 ```
 
@@ -248,7 +248,7 @@ fn test_exclude_content_scan_pattern() {
 **Step 4: Build and test**
 
 ```bash
-cd /home/openclaw/.openclaw/workspace/projects/ClawAV
+cd /home/openclaw/.openclaw/workspace/projects/ClawTower
 cargo test 2>&1 | tail -5
 cargo build --release 2>&1 | tail -5
 ```
@@ -385,7 +385,7 @@ git add src/behavior.rs && git commit -m "fix: suppress SEC_TAMPER for compiler 
 
 **Step 1: Understand the gap**
 
-The POC test ran `LD_PRELOAD=/tmp/evil.so ls`. ClawAV's current `PRELOAD_BYPASS_PATTERNS` checks the *command string* for `LD_PRELOAD`. But when `LD_PRELOAD` is set as an environment variable (not part of the command args), auditd logs it differently — in `EXECVE` records the env vars may not appear in the command field.
+The POC test ran `LD_PRELOAD=/tmp/evil.so ls`. ClawTower's current `PRELOAD_BYPASS_PATTERNS` checks the *command string* for `LD_PRELOAD`. But when `LD_PRELOAD` is set as an environment variable (not part of the command args), auditd logs it differently — in `EXECVE` records the env vars may not appear in the command field.
 
 Check what auditd actually logged:
 
@@ -400,8 +400,8 @@ If auditd captures the env var, add a check in `src/auditd.rs` event parsing to 
 If auditd doesn't capture env vars by default, add an auditd rule:
 
 ```bash
-# Add to /etc/audit/rules.d/clawav.rules
--a always,exit -F arch=b64 -S execve -F key=clawav_env
+# Add to /etc/audit/rules.d/clawtower.rules
+-a always,exit -F arch=b64 -S execve -F key=clawtower_env
 ```
 
 This won't capture env vars directly, but we can add a check for commands that are commonly used with `LD_PRELOAD`:
@@ -411,7 +411,7 @@ In `src/behavior.rs`, add a pattern that checks if the command was invoked with 
 ```rust
 // In the command analysis section, check for LD_PRELOAD= in the full audit record
 if let Some(ref raw) = event.raw_record {
-    if raw.contains("LD_PRELOAD=") && !raw.contains("clawav") && !raw.contains("clawguard") {
+    if raw.contains("LD_PRELOAD=") && !raw.contains("clawtower") && !raw.contains("clawguard") {
         // Check if this is a build tool
         if !BUILD_TOOL_BASES.iter().any(|t| binary.starts_with(t)) {
             return Some((BehaviorCategory::SecurityTamper, Severity::Critical));
@@ -476,11 +476,11 @@ git commit -m "feat: detect LD_PRELOAD env var injection (closes POC gap)"
 **Step 1: Deploy new binary**
 
 ```bash
-sudo systemctl stop clawav
-sudo chattr -i /usr/local/bin/clawav
-sudo cp /home/openclaw/.openclaw/workspace/projects/ClawAV/target/release/clawav /usr/local/bin/clawav
-sudo chattr +i /usr/local/bin/clawav
-sudo systemctl start clawav
+sudo systemctl stop clawtower
+sudo chattr -i /usr/local/bin/clawtower
+sudo cp /home/openclaw/.openclaw/workspace/projects/ClawTower/target/release/clawtower /usr/local/bin/clawtower
+sudo chattr +i /usr/local/bin/clawtower
+sudo systemctl start clawtower
 ```
 
 **Step 2: Wait 1 hour and check alert volume**
@@ -488,7 +488,7 @@ sudo systemctl start clawav
 ```bash
 # After 1 hour:
 BEFORE=$(date -d '1 hour ago' --iso-8601=seconds)
-cat /var/log/clawav/alerts.jsonl | jq -r "select(.timestamp > \"$BEFORE\") | .severity" | sort | uniq -c
+cat /var/log/clawtower/alerts.jsonl | jq -r "select(.timestamp > \"$BEFORE\") | .severity" | sort | uniq -c
 ```
 
 Expected: ~220 alerts/hr (down from ~900), <2 Critical/hr (down from ~160).

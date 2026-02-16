@@ -1,4 +1,4 @@
-# ClawAV Installer UX Improvements — Design
+# ClawTower Installer UX Improvements — Design
 
 **Date:** 2026-02-15
 **Status:** Approved
@@ -14,7 +14,7 @@ The oneshot installer has no concept of "already installed." Every run goes thro
 
 ### 1. Install Detection (top of script)
 
-Check for three markers: `/usr/local/bin/clawav` + `/etc/clawav/config.toml` + `/etc/clawav/admin.key.hash`
+Check for three markers: `/usr/local/bin/clawtower` + `/etc/clawtower/config.toml` + `/etc/clawtower/admin.key.hash`
 
 - **All three exist** → existing install detected → offer menu:
   - **Upgrade** — swap binaries, refresh patterns + sudoers policy, keep config + key
@@ -45,7 +45,7 @@ Track whether admin.key.hash existed at script start (capture in variable early)
 
 Before `augenrules --load`:
 - Check `auditctl -s | grep "enabled 2"` 
-- **If immutable** → install rules file to `/etc/audit/rules.d/clawav.rules` silently, then: "ℹ️  Auditd is in immutable mode. Rules installed — they'll activate after next reboot."
+- **If immutable** → install rules file to `/etc/audit/rules.d/clawtower.rules` silently, then: "ℹ️  Auditd is in immutable mode. Rules installed — they'll activate after next reboot."
 - **If not immutable** → load rules normally, show current ✓ message
 
 ## Implementation Notes

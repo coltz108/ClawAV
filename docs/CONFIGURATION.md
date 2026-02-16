@@ -1,22 +1,22 @@
-# ClawAV Configuration Reference
+# ClawTower Configuration Reference
 
 ## Config Layering
 
-ClawAV uses a layered configuration system. Upstream defaults ship in base files;
+ClawTower uses a layered configuration system. Upstream defaults ship in base files;
 your customizations live in separate override files that are never touched by updates.
 
 ### File Layout
 
 | File | Owner | Purpose |
 |------|-------|---------|
-| `/etc/clawav/config.toml` | Upstream | Base config — replaced on updates |
-| `/etc/clawav/config.d/*.toml` | You | Your overrides — never touched by updates |
-| `/etc/clawav/policies/default.yaml` | Upstream | Base detection rules |
-| `/etc/clawav/policies/*.yaml` | You | Your custom/override rules |
+| `/etc/clawtower/config.toml` | Upstream | Base config — replaced on updates |
+| `/etc/clawtower/config.d/*.toml` | You | Your overrides — never touched by updates |
+| `/etc/clawtower/policies/default.yaml` | Upstream | Base detection rules |
+| `/etc/clawtower/policies/*.yaml` | You | Your custom/override rules |
 
 ### Config Overrides (config.d/)
 
-Create `.toml` files in `/etc/clawav/config.d/`. They're loaded alphabetically
+Create `.toml` files in `/etc/clawtower/config.d/`. They're loaded alphabetically
 after `config.toml` and merged:
 
 - **Scalars** — your value replaces the default
@@ -27,7 +27,7 @@ after `config.toml` and merged:
 Disable Falco and add a host to the network allowlist:
 
 ```toml
-# /etc/clawav/config.d/my-overrides.toml
+# /etc/clawtower/config.d/my-overrides.toml
 [falco]
 enabled = false
 
@@ -38,7 +38,7 @@ allowed_hosts_add = ["myapi.example.com"]
 Remove a default allowlisted CIDR:
 
 ```toml
-# /etc/clawav/config.d/strict-network.toml
+# /etc/clawtower/config.d/strict-network.toml
 [network]
 allowlisted_cidrs_remove = ["169.254.0.0/16"]
 ```
@@ -49,14 +49,14 @@ Prefix with numbers to control load order: `00-first.toml`, `50-middle.toml`, `9
 
 ### Policy Overrides
 
-Create `.yaml` files in `/etc/clawav/policies/`. Rules are merged by `name`:
+Create `.yaml` files in `/etc/clawtower/policies/`. Rules are merged by `name`:
 
 - Same name as a default rule → **your version replaces it entirely**
 - New name → added to the rule set
 - `enabled: false` → disables a rule
 
 ```yaml
-# /etc/clawav/policies/custom.yaml
+# /etc/clawtower/policies/custom.yaml
 rules:
   # Override the exfil rule
   - name: "block-data-exfiltration"
@@ -77,14 +77,14 @@ rules:
 
 ### Updates
 
-When ClawAV updates, `config.toml` and `default.yaml` are replaced with new versions.
+When ClawTower updates, `config.toml` and `default.yaml` are replaced with new versions.
 Your files in `config.d/` and custom policy YAMLs are untouched. You don't need to do anything.
 
 ---
 
-ClawAV uses a **TOML** configuration file, typically located at `/etc/clawav/config.toml`.
+ClawTower uses a **TOML** configuration file, typically located at `/etc/clawtower/config.toml`.
 
-> ⚠️ **TOML only.** Despite the `config.example.yaml` file in the repo root, ClawAV's config parser only reads TOML format. The YAML file is a legacy reference and should not be used directly.
+> ⚠️ **TOML only.** Despite the `config.example.yaml` file in the repo root, ClawTower's config parser only reads TOML format. The YAML file is a legacy reference and should not be used directly.
 
 Most sections use `#[serde(default)]` — missing sections gracefully fall back to defaults. However, **five sections are required** and must be present in the config file: `[general]`, `[slack]`, `[auditd]`, `[network]`, and `[scans]`. All other sections (`[falco]`, `[samhain]`, `[api]`, `[proxy]`, `[policy]`, `[secureclaw]`, `[netpolicy]`, `[ssh]`, `[sentinel]`, `[auto_update]`) are optional and have sensible defaults.
 
@@ -122,7 +122,7 @@ Controls which users are monitored and the global alert threshold. This section 
 | `watched_users` | `Vec<String>` | `[]` | List of **numeric UIDs** to monitor (e.g., `["1000"]`, not usernames — these match against auditd's `uid=` and `auid=` fields) |
 | `watch_all_users` | `bool` | `false` | If `true`, monitor all users regardless of `watched_users` |
 | `min_alert_level` | `String` | *(required)* | Minimum severity: `"info"`, `"warning"`, or `"critical"` |
-| `log_file` | `String` | *(required)* | Path to ClawAV's own log file |
+| `log_file` | `String` | *(required)* | Path to ClawTower's own log file |
 
 **User resolution logic** (`effective_watched_users()`):
 - If `watch_all_users = true` → monitor everyone
@@ -134,10 +134,10 @@ Controls which users are monitored and the global alert threshold. This section 
 watched_users = ["1000"]   # Numeric UID, not username (find with: id -u openclaw)
 watch_all_users = false
 min_alert_level = "info"
-log_file = "/var/log/clawav/clawav.log"
+log_file = "/var/log/clawtower/clawtower.log"
 ```
 
-> ⚠️ **Common mistake:** Using usernames (e.g., `"openclaw"`) instead of numeric UIDs (e.g., `"1000"`). ClawAV matches against auditd's `uid=` and `auid=` fields, which are numeric. Find your user's UID with `id -u <username>`.
+> ⚠️ **Common mistake:** Using usernames (e.g., `"openclaw"`) instead of numeric UIDs (e.g., `"1000"`). ClawTower matches against auditd's `uid=` and `auid=` fields, which are numeric. Find your user's UID with `id -u <username>`.
 
 ---
 
@@ -197,7 +197,7 @@ Network/iptables log monitoring. This section **must** be present in the config 
 |-------|------|---------|-------------|
 | `enabled` | `bool` | *(required)* | Enable network log monitoring |
 | `log_path` | `String` | *(required)* | Path to syslog (for file-based source) |
-| `log_prefix` | `String` | *(required)* | Iptables log prefix to match (e.g., `"CLAWAV_NET"`) |
+| `log_prefix` | `String` | *(required)* | Iptables log prefix to match (e.g., `"CLAWTOWER_NET"`) |
 | `source` | `String` | `"auto"` | Log source: `"auto"`, `"journald"`, or `"file"` |
 | `allowlisted_cidrs` | `Vec<String>` | RFC1918 + multicast + loopback | CIDR ranges to never alert on |
 | `allowlisted_ports` | `Vec<u16>` | `[443, 53, 123, 5353]` | Ports to never alert on |
@@ -208,7 +208,7 @@ Network/iptables log monitoring. This section **must** be present in the config 
 [network]
 enabled = true
 log_path = "/var/log/syslog"
-log_prefix = "CLAWAV_NET"
+log_prefix = "CLAWTOWER_NET"
 source = "auto"
 allowlisted_cidrs = ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"]
 allowlisted_ports = [443, 53, 123, 5353]
@@ -457,8 +457,8 @@ Real-time file integrity monitoring via inotify.
 |-------|------|---------|-------------|
 | `enabled` | `bool` | `true` | Enable sentinel file watching |
 | `watch_paths` | `Vec<WatchPathConfig>` | 3 default paths (see below) | Paths to monitor |
-| `quarantine_dir` | `String` | `"/etc/clawav/quarantine"` | Where quarantined files are stored |
-| `shadow_dir` | `String` | `"/etc/clawav/sentinel-shadow"` | Where shadow copies are stored |
+| `quarantine_dir` | `String` | `"/etc/clawtower/quarantine"` | Where quarantined files are stored |
+| `shadow_dir` | `String` | `"/etc/clawtower/sentinel-shadow"` | Where shadow copies are stored |
 | `debounce_ms` | `u64` | `200` | Milliseconds to debounce filesystem events |
 | `scan_content` | `bool` | `true` | Run SecureClaw pattern scan on changed file contents |
 | `max_file_size_kb` | `u64` | `1024` | Maximum file size (KB) for content scanning |
@@ -485,8 +485,8 @@ Real-time file integrity monitoring via inotify.
 ```toml
 [sentinel]
 enabled = true
-quarantine_dir = "/etc/clawav/quarantine"
-shadow_dir = "/etc/clawav/sentinel-shadow"
+quarantine_dir = "/etc/clawtower/quarantine"
+shadow_dir = "/etc/clawtower/sentinel-shadow"
 debounce_ms = 200
 scan_content = true
 max_file_size_kb = 1024
@@ -547,7 +547,7 @@ A fully-commented config with every field and section documented:
 
 ```toml
 # ═══════════════════════════════════════════════════════════════════════
-# ClawAV Configuration — /etc/clawav/config.toml
+# ClawTower Configuration — /etc/clawtower/config.toml
 # All sections use serde(default) — missing fields use sensible defaults
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -561,8 +561,8 @@ watched_users = ["1000"]
 watch_all_users = false
 # Minimum severity for internal alert processing: "info", "warning", "critical"
 min_alert_level = "info"
-# ClawAV's own log file
-log_file = "/var/log/clawav/clawav.log"
+# ClawTower's own log file
+log_file = "/var/log/clawtower/clawtower.log"
 
 [slack]
 # Explicitly enable/disable (nil = enabled if webhook_url is non-empty)
@@ -588,8 +588,8 @@ log_path = "/var/log/audit/audit.log"
 enabled = true
 # Syslog path (used when source = "file")
 log_path = "/var/log/syslog"
-# Must match your iptables rule: -j LOG --log-prefix "CLAWAV_NET"
-log_prefix = "CLAWAV_NET"
+# Must match your iptables rule: -j LOG --log-prefix "CLAWTOWER_NET"
+log_prefix = "CLAWTOWER_NET"
 # "auto" = prefer journald, fallback to file; "journald"; "file"
 source = "auto"
 # CIDR ranges that never generate alerts
@@ -668,8 +668,8 @@ blocked_hosts = []
 [sentinel]
 # Real-time file integrity monitoring via inotify
 enabled = true
-quarantine_dir = "/etc/clawav/quarantine"
-shadow_dir = "/etc/clawav/sentinel-shadow"
+quarantine_dir = "/etc/clawtower/quarantine"
+shadow_dir = "/etc/clawtower/sentinel-shadow"
 # Debounce window for filesystem events (ms)
 debounce_ms = 200
 # Run SecureClaw patterns on changed content

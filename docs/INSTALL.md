@@ -15,7 +15,7 @@
    ```bash
    cargo build --release
    ```
-   Binary will be at `target/release/clawav`
+   Binary will be at `target/release/clawtower`
 
 2. **Build the LD_PRELOAD library:**
    ```bash
@@ -50,36 +50,36 @@ sudo bash scripts/install.sh
 
 **Step 1 — Create system user:**
 ```bash
-useradd --system --no-create-home --shell /usr/sbin/nologin clawav
+useradd --system --no-create-home --shell /usr/sbin/nologin clawtower
 ```
 
 **Step 2 — Install binary and config:**
-- Copies binary to `/usr/local/bin/clawav` (mode 755)
-- Copies config to `/etc/clawav/config.toml` (mode 644)
-- Creates `/var/log/clawav/` and `/var/run/clawav/`
-- Sets ownership: `clawav:clawav` (except `/var/run/clawav/` → `clawav:openclaw` mode 0750)
+- Copies binary to `/usr/local/bin/clawtower` (mode 755)
+- Copies config to `/etc/clawtower/config.toml` (mode 644)
+- Creates `/var/log/clawtower/` and `/var/run/clawtower/`
+- Sets ownership: `clawtower:clawtower` (except `/var/run/clawtower/` → `clawtower:openclaw` mode 0750)
 
 **Step 3 — Install systemd service:**
-Creates `/etc/systemd/system/clawav.service` with:
+Creates `/etc/systemd/system/clawtower.service` with:
 - `Restart=always`, `RestartSec=5`
 - `WatchdogSec=30` (systemd kills and restarts if watchdog not fed)
 - `ProtectSystem=strict`, `ProtectHome=yes`, `NoNewPrivileges=true`
-- `ReadWritePaths=/var/log/clawav /var/run/clawav /etc/clawav`
-- Runs as user `clawav` in `--headless` mode
+- `ReadWritePaths=/var/log/clawtower /var/run/clawtower /etc/clawtower`
+- Runs as user `clawtower` in `--headless` mode
 
 **Step 4 — Set immutable attributes:**
 ```bash
-chattr +i /usr/local/bin/clawav
-chattr +i /etc/clawav/config.toml
-chattr +i /etc/systemd/system/clawav.service
+chattr +i /usr/local/bin/clawtower
+chattr +i /etc/clawtower/config.toml
+chattr +i /etc/systemd/system/clawtower.service
 ```
 After this, even root cannot modify these files without first removing the immutable flag — and the agent's `CAP_LINUX_IMMUTABLE` is stripped in step 6.
 
 **Step 5 — AppArmor profile:**
-Creates `/etc/apparmor.d/clawav.deny-openclaw` which denies the `openclaw` user access to:
-- `/usr/local/bin/clawav`
-- `/etc/clawav/**`
-- `/var/log/clawav/**`
+Creates `/etc/apparmor.d/clawtower.deny-openclaw` which denies the `openclaw` user access to:
+- `/usr/local/bin/clawtower`
+- `/etc/clawtower/**`
+- `/var/log/clawtower/**`
 
 **Step 6 — Drop capabilities:**
 Writes `/etc/security/capability.conf`:
@@ -91,7 +91,7 @@ Writes `/etc/security/capability.conf`:
 Adds `pam_cap.so` to `/etc/pam.d/common-auth` if available.
 
 **Step 7 — Kernel hardening:**
-Creates `/etc/sysctl.d/99-clawav.conf`:
+Creates `/etc/sysctl.d/99-clawtower.conf`:
 ```
 kernel.modules_disabled = 1
 kernel.yama.ptrace_scope = 2
@@ -100,9 +100,9 @@ kernel.yama.ptrace_scope = 2
 - `ptrace_scope=2` — only root can ptrace (prevents debugging the watchdog)
 
 **Step 8 — Restricted sudoers:**
-Creates `/etc/sudoers.d/clawav-deny` denying the `openclaw` user from running:
-- `systemctl stop/disable/mask clawav`
-- `chattr -i` on any ClawAV files
+Creates `/etc/sudoers.d/clawtower-deny` denying the `openclaw` user from running:
+- `systemctl stop/disable/mask clawtower`
+- `chattr -i` on any ClawTower files
 - `ufw disable`
 - `auditctl -e 0` or `auditctl -e 1`
 
@@ -118,8 +118,8 @@ Makes audit rules immutable until next reboot.
 
 **Step 11 — Build and install LD_PRELOAD guard:**
 Runs `build-preload.sh` and `enable-preload.sh`:
-- Compiles `libclawguard.so` and installs to `/usr/local/lib/clawav/`
-- Creates default preload policy at `/etc/clawav/preload-policy.json`
+- Compiles `libclawguard.so` and installs to `/usr/local/lib/clawtower/`
+- Creates default preload policy at `/etc/clawtower/preload-policy.json`
 - Adds `Environment=LD_PRELOAD=...` to the systemd service
 - Makes `libclawguard.so` immutable
 
@@ -130,52 +130,52 @@ rm -f "$SCRIPT_PATH"
 
 ## What Happens on First Run
 
-1. ClawAV loads `/etc/clawav/config.toml` — **if this file is missing or invalid TOML, it will fail to start**.
-2. An admin key is generated (format: `OCAV-` + 64 hex chars), printed to stdout/journal **exactly once**, and stored as an Argon2 hash at `/etc/clawav/admin.key.hash`.
+1. ClawTower loads `/etc/clawtower/config.toml` — **if this file is missing or invalid TOML, it will fail to start**.
+2. An admin key is generated (format: `OCAV-` + 64 hex chars), printed to stdout/journal **exactly once**, and stored as an Argon2 hash at `/etc/clawtower/admin.key.hash`.
 3. Shadow copies are created for all sentinel-watched files.
 4. Cognitive baselines (SHA-256 hashes) are computed for identity files.
 5. All enabled monitoring sources start tailing their respective logs.
-6. A startup alert is sent to Slack (if configured): `"🛡️ ClawAV watchdog started"`.
+6. A startup alert is sent to Slack (if configured): `"🛡️ ClawTower watchdog started"`.
 
-> ⚠️ **Capture the admin key immediately** from `journalctl -u clawav` — it is never shown again.
+> ⚠️ **Capture the admin key immediately** from `journalctl -u clawtower` — it is never shown again.
 
 ## Post-Install Verification
 
 ```bash
 # Check service is running
-sudo systemctl status clawav
+sudo systemctl status clawtower
 
 # Check logs
-sudo journalctl -u clawav -f
+sudo journalctl -u clawtower -f
 
 # Verify immutable flags
-lsattr /usr/local/bin/clawav
-# Should show: ----i---------e------- /usr/local/bin/clawav
+lsattr /usr/local/bin/clawtower
+# Should show: ----i---------e------- /usr/local/bin/clawtower
 
 # Test the API
 curl http://localhost:18791/api/status
 
 # Verify audit chain
-/usr/local/bin/clawav verify-audit
+/usr/local/bin/clawtower verify-audit
 ```
 
 ## CLI Commands
 
-After installation, ClawAV provides these commands:
+After installation, ClawTower provides these commands:
 
 | Command | Description |
 |---------|-------------|
-| `clawav run` | Start with TUI dashboard (default) |
-| `clawav run --headless` | Start in headless/daemon mode |
-| `clawav scan` | One-shot security scan and exit |
-| `clawav status` | Show service status |
-| `clawav configure` | Interactive configuration wizard |
-| `clawav update` | Self-update from GitHub releases |
-| `clawav verify-audit` | Verify audit chain integrity |
-| `clawav sync` | Update SecureClaw pattern databases |
-| `clawav harden` | Apply tamper-proof hardening |
-| `clawav uninstall` | Remove ClawAV (requires admin key) |
-| `clawav logs` | Tail service logs |
+| `clawtower run` | Start with TUI dashboard (default) |
+| `clawtower run --headless` | Start in headless/daemon mode |
+| `clawtower scan` | One-shot security scan and exit |
+| `clawtower status` | Show service status |
+| `clawtower configure` | Interactive configuration wizard |
+| `clawtower update` | Self-update from GitHub releases |
+| `clawtower verify-audit` | Verify audit chain integrity |
+| `clawtower sync` | Update SecureClaw pattern databases |
+| `clawtower harden` | Apply tamper-proof hardening |
+| `clawtower uninstall` | Remove ClawTower (requires admin key) |
+| `clawtower logs` | Tail service logs |
 
 ## See Also
 
@@ -193,20 +193,20 @@ On first run, the service prints a 256-bit admin key to its log output:
 OCAV-<64 hex characters>
 ```
 
-**This key is shown exactly once.** It's stored only as an Argon2 hash in `/etc/clawav/admin.key.hash`. You need this key to:
+**This key is shown exactly once.** It's stored only as an Argon2 hash in `/etc/clawtower/admin.key.hash`. You need this key to:
 - Check watchdog status remotely
 - Trigger manual scans
 - Temporarily pause monitoring (max 30 min)
 
-Check `journalctl -u clawav` immediately after install to capture it.
+Check `journalctl -u clawtower` immediately after install to capture it.
 
 ## Recovery Procedure
 
-To modify ClawAV after installation:
+To modify ClawTower after installation:
 
 1. **Reboot into recovery mode** (physical access required)
 2. Mount filesystem read-write
-3. Remove immutable flags: `chattr -i /usr/local/bin/clawav /etc/clawav/config.toml /etc/systemd/system/clawav.service`
+3. Remove immutable flags: `chattr -i /usr/local/bin/clawtower /etc/clawtower/config.toml /etc/systemd/system/clawtower.service`
 4. Make changes
 5. Re-apply immutable flags: `chattr +i ...`
 6. Reboot normally
@@ -219,26 +219,26 @@ Requires physical access + recovery boot:
 
 ```bash
 # In recovery mode:
-chattr -i /usr/local/bin/clawav
-chattr -i /etc/clawav/config.toml
-chattr -i /etc/systemd/system/clawav.service
-chattr -i /etc/sudoers.d/clawav-deny
-chattr -i /usr/local/lib/clawav/libclawguard.so
+chattr -i /usr/local/bin/clawtower
+chattr -i /etc/clawtower/config.toml
+chattr -i /etc/systemd/system/clawtower.service
+chattr -i /etc/sudoers.d/clawtower-deny
+chattr -i /usr/local/lib/clawtower/libclawguard.so
 
-systemctl stop clawav
-systemctl disable clawav
-rm /etc/systemd/system/clawav.service
-rm /usr/local/bin/clawav
-rm -rf /etc/clawav
-rm -rf /var/log/clawav
-rm -rf /var/run/clawav
-rm /etc/sudoers.d/clawav-deny
-rm /etc/apparmor.d/clawav.deny-openclaw
-rm /etc/sysctl.d/99-clawav.conf
+systemctl stop clawtower
+systemctl disable clawtower
+rm /etc/systemd/system/clawtower.service
+rm /usr/local/bin/clawtower
+rm -rf /etc/clawtower
+rm -rf /var/log/clawtower
+rm -rf /var/run/clawtower
+rm /etc/sudoers.d/clawtower-deny
+rm /etc/apparmor.d/clawtower.deny-openclaw
+rm /etc/sysctl.d/99-clawtower.conf
 rm /etc/security/capability.conf
-rm -rf /usr/local/lib/clawav
+rm -rf /usr/local/lib/clawtower
 
-userdel clawav
+userdel clawtower
 systemctl daemon-reload
 
 # Revert sysctl (will take effect on next boot):

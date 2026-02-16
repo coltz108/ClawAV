@@ -1,7 +1,7 @@
 [general]
 watched_user = "1000"
 min_alert_level = "info"
-log_file = "/var/log/clawav/watchdog.log"
+log_file = "/var/log/clawtower/watchdog.log"
 
 [slack]
 enabled = false
@@ -16,7 +16,7 @@ enabled = true
 
 [network]
 log_path = "/var/log/syslog"
-log_prefix = "CLAWAV_NET"
+log_prefix = "CLAWTOWER_NET"
 enabled = true
 source = "auto"
 

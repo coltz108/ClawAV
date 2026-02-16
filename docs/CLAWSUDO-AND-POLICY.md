@@ -1,6 +1,6 @@
 # ClawSudo & Policy Engine Guide
 
-ClawAV's security enforcement layer: a sudo gatekeeper, YAML policy engine, admin key system, tamper-evident audit chain, API key proxy with DLP, and LD_PRELOAD syscall guard.
+ClawTower's security enforcement layer: a sudo gatekeeper, YAML policy engine, admin key system, tamper-evident audit chain, API key proxy with DLP, and LD_PRELOAD syscall guard.
 
 ---
 
@@ -29,7 +29,7 @@ Agent → clawsudo <command> → Policy Check → sudo <command> (or deny)
 ### How It Works
 
 1. **Parse command** — extracts the binary name (basename) and full command string from arguments
-2. **Load policies** — reads all `.yaml`/`.yml` files from `/etc/clawav/policies/` and `./policies/`
+2. **Load policies** — reads all `.yaml`/`.yml` files from `/etc/clawtower/policies/` and `./policies/`
 3. **Fail-secure** — if no policy files are found, **all commands are denied** (exit code 77)
 4. **Evaluate** — first matching rule wins; rules are checked in file order
 5. **Enforce** — based on the matched rule's `enforcement` field. If `enforcement` is not set, it's inferred from the `action` field: `critical`/`block` → deny, anything else → ask.
@@ -55,7 +55,7 @@ When a command requires approval (`ask` enforcement or no matching rule):
 
 ### Slack Notifications
 
-clawsudo loads webhook URLs from `/etc/clawav/config.toml` (or `./config.toml`):
+clawsudo loads webhook URLs from `/etc/clawtower/config.toml` (or `./config.toml`):
 
 ```toml
 [slack]
@@ -80,7 +80,7 @@ Notifications are sent for:
 
 ## 2. Policy Engine
 
-ClawAV has two policy evaluation contexts that share the same YAML format:
+ClawTower has two policy evaluation contexts that share the same YAML format:
 
 - **clawsudo policies** — enforcement rules with `enforcement` field (allow/deny/ask); first match wins
 - **Detection policies** — monitoring rules without `enforcement`; highest severity match wins
@@ -129,7 +129,7 @@ rules:
 
 ## 3. Admin Key System
 
-ClawAV provides authenticated admin control via a Unix domain socket at `/var/run/clawav/admin.sock` (falls back to `/tmp/clawav-<uid>/admin.sock` if the primary path is unavailable).
+ClawTower provides authenticated admin control via a Unix domain socket at `/var/run/clawtower/admin.sock` (falls back to `/tmp/clawtower-<uid>/admin.sock` if the primary path is unavailable).
 
 ### Key Generation
 
@@ -150,11 +150,11 @@ On first run, a 256-bit admin key is generated:
 
 ```bash
 # Key hash is stored at:
-/etc/clawav/admin.key.hash
+/etc/clawtower/admin.key.hash
 
-# To regenerate: delete the hash file and restart ClawAV
-rm /etc/clawav/admin.key.hash
-systemctl restart clawav
+# To regenerate: delete the hash file and restart ClawTower
+rm /etc/clawtower/admin.key.hash
+systemctl restart clawtower
 # New key will be printed — save it immediately
 ```
 
@@ -218,15 +218,15 @@ seq|ts|severity|source|message|prev_hash
 
 ### Chain Resumption
 
-When ClawAV restarts, `AuditChain::new()` reads the existing file, finds the last valid entry's sequence number and hash, and continues appending from there.
+When ClawTower restarts, `AuditChain::new()` reads the existing file, finds the last valid entry's sequence number and hash, and continues appending from there.
 
 ### Tamper Detection
 
 Verify the entire chain:
 
 ```bash
-clawav verify-audit                              # default path
-clawav verify-audit /var/log/clawav/audit.chain  # custom path
+clawtower verify-audit                              # default path
+clawtower verify-audit /var/log/clawtower/audit.chain  # custom path
 ```
 
 Verification checks for each entry:
@@ -241,7 +241,7 @@ Verification checks for each entry:
 
 ### Storage
 
-- **Path:** `/var/log/clawav/audit.chain` (JSONL format)
+- **Path:** `/var/log/clawtower/audit.chain` (JSONL format)
 - **clawsudo also appends** plain-text log lines to this file
 
 ---
@@ -323,14 +323,14 @@ export LD_PRELOAD=/usr/local/lib/libclawguard.so
 
 ### Policy Configuration
 
-The guard reads `/etc/clawav/preload-policy.json` once at library load (constructor):
+The guard reads `/etc/clawtower/preload-policy.json` once at library load (constructor):
 
 ```json
 {
   "enabled": true,
-  "log_file": "/var/log/clawav/preload.log",
+  "log_file": "/var/log/clawtower/preload.log",
   "deny_exec": ["bash -c", "sh -i", "nc", "ncat"],
-  "deny_paths_write": ["/etc/clawav", "/etc/shadow", "/etc/sudoers"],
+  "deny_paths_write": ["/etc/clawtower", "/etc/shadow", "/etc/sudoers"],
   "deny_connect": ["evil.com", ":4444"]
 }
 ```
@@ -415,7 +415,7 @@ rules:
 ```json
 {
   "enabled": true,
-  "log_file": "/var/log/clawav/preload.log",
+  "log_file": "/var/log/clawtower/preload.log",
   "deny_exec": ["bash -i", "sh -i", "nc", "ncat", "python"],
   "deny_paths_write": ["/etc", "/usr/bin", "/usr/sbin"],
   "deny_connect": [":4444", ":1337", ":9001"]

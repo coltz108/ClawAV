@@ -193,7 +193,7 @@ mod tests {
 
 **Step 2: Run tests to verify they fail**
 
-Run: `cd /home/openclaw/.openclaw/workspace/projects/ClawAV && cargo test config_merge --lib -- --nocapture 2>&1 | tail -20`
+Run: `cd /home/openclaw/.openclaw/workspace/projects/ClawTower && cargo test config_merge --lib -- --nocapture 2>&1 | tail -20`
 Expected: FAIL with "not yet implemented"
 
 **Step 3: Implement merge_toml and strip_suffixes**
@@ -260,13 +260,13 @@ fn strip_suffixes(table: &mut toml::map::Map<String, Value>) {
 
 **Step 4: Run tests to verify they pass**
 
-Run: `cd /home/openclaw/.openclaw/workspace/projects/ClawAV && cargo test config_merge --lib -- --nocapture 2>&1 | tail -20`
+Run: `cd /home/openclaw/.openclaw/workspace/projects/ClawTower && cargo test config_merge --lib -- --nocapture 2>&1 | tail -20`
 Expected: all 8 tests PASS
 
 **Step 5: Commit**
 
 ```bash
-cd /home/openclaw/.openclaw/workspace/projects/ClawAV
+cd /home/openclaw/.openclaw/workspace/projects/ClawTower
 git add src/config_merge.rs src/main.rs
 git commit -m "feat: TOML config merge with _add/_remove list semantics"
 ```
@@ -298,7 +298,7 @@ fn test_load_with_overrides_dir() {
         [general]
         watched_user = "1000"
         min_alert_level = "info"
-        log_file = "/var/log/clawav/watchdog.log"
+        log_file = "/var/log/clawtower/watchdog.log"
 
         [slack]
         webhook_url = "https://hooks.slack.com/test"
@@ -311,7 +311,7 @@ fn test_load_with_overrides_dir() {
 
         [network]
         log_path = "/var/log/syslog"
-        log_prefix = "CLAWAV_NET"
+        log_prefix = "CLAWTOWER_NET"
         enabled = true
 
         [scans]
@@ -344,7 +344,7 @@ fn test_load_with_overrides_list_add() {
         [general]
         watched_user = "1000"
         min_alert_level = "info"
-        log_file = "/var/log/clawav/watchdog.log"
+        log_file = "/var/log/clawtower/watchdog.log"
 
         [slack]
         webhook_url = "https://hooks.slack.com/test"
@@ -357,7 +357,7 @@ fn test_load_with_overrides_list_add() {
 
         [network]
         log_path = "/var/log/syslog"
-        log_prefix = "CLAWAV_NET"
+        log_prefix = "CLAWTOWER_NET"
         enabled = true
 
         [netpolicy]
@@ -388,7 +388,7 @@ fn test_load_with_overrides_empty_dir() {
         [general]
         watched_user = "1000"
         min_alert_level = "info"
-        log_file = "/var/log/clawav/watchdog.log"
+        log_file = "/var/log/clawtower/watchdog.log"
 
         [slack]
         webhook_url = "https://hooks.slack.com/test"
@@ -401,7 +401,7 @@ fn test_load_with_overrides_empty_dir() {
 
         [network]
         log_path = "/var/log/syslog"
-        log_prefix = "CLAWAV_NET"
+        log_prefix = "CLAWTOWER_NET"
         enabled = true
 
         [scans]
@@ -421,7 +421,7 @@ fn test_load_with_overrides_no_dir() {
         [general]
         watched_user = "1000"
         min_alert_level = "info"
-        log_file = "/var/log/clawav/watchdog.log"
+        log_file = "/var/log/clawtower/watchdog.log"
 
         [slack]
         webhook_url = "https://hooks.slack.com/test"
@@ -434,7 +434,7 @@ fn test_load_with_overrides_no_dir() {
 
         [network]
         log_path = "/var/log/syslog"
-        log_prefix = "CLAWAV_NET"
+        log_prefix = "CLAWTOWER_NET"
         enabled = true
 
         [scans]
@@ -450,7 +450,7 @@ fn test_load_with_overrides_no_dir() {
 
 **Step 2: Run tests to verify they fail**
 
-Run: `cd /home/openclaw/.openclaw/workspace/projects/ClawAV && cargo test test_load_with_overrides --lib -- --nocapture 2>&1 | tail -20`
+Run: `cd /home/openclaw/.openclaw/workspace/projects/ClawTower && cargo test test_load_with_overrides --lib -- --nocapture 2>&1 | tail -20`
 Expected: FAIL — method doesn't exist
 
 **Step 3: Implement Config::load_with_overrides**
@@ -503,7 +503,7 @@ impl Config {
 
 **Step 4: Run tests to verify they pass**
 
-Run: `cd /home/openclaw/.openclaw/workspace/projects/ClawAV && cargo test test_load_with_overrides --lib -- --nocapture 2>&1 | tail -20`
+Run: `cd /home/openclaw/.openclaw/workspace/projects/ClawTower && cargo test test_load_with_overrides --lib -- --nocapture 2>&1 | tail -20`
 Expected: all 4 tests PASS
 
 **Step 5: Update main.rs to use load_with_overrides**
@@ -518,7 +518,7 @@ to:
 
 ```rust
 let config_d = config_path.parent()
-    .unwrap_or(Path::new("/etc/clawav"))
+    .unwrap_or(Path::new("/etc/clawtower"))
     .join("config.d");
 let config = Config::load_with_overrides(&config_path, &config_d)?;
 eprintln!("Config loaded (with overlays from {})", config_d.display());
@@ -526,13 +526,13 @@ eprintln!("Config loaded (with overlays from {})", config_d.display());
 
 **Step 6: Run full test suite**
 
-Run: `cd /home/openclaw/.openclaw/workspace/projects/ClawAV && cargo test 2>&1 | tail -5`
+Run: `cd /home/openclaw/.openclaw/workspace/projects/ClawTower && cargo test 2>&1 | tail -5`
 Expected: all tests pass
 
 **Step 7: Commit**
 
 ```bash
-cd /home/openclaw/.openclaw/workspace/projects/ClawAV
+cd /home/openclaw/.openclaw/workspace/projects/ClawTower
 git add src/config.rs src/main.rs
 git commit -m "feat: Config::load_with_overrides — config.d/ drop-in overlay support"
 ```
@@ -667,7 +667,7 @@ rules:
 
 **Step 2: Run tests to verify they fail**
 
-Run: `cd /home/openclaw/.openclaw/workspace/projects/ClawAV && cargo test test_enabled_false --lib -- --nocapture 2>&1 | tail -10`
+Run: `cd /home/openclaw/.openclaw/workspace/projects/ClawTower && cargo test test_enabled_false --lib -- --nocapture 2>&1 | tail -10`
 Expected: FAIL — `enabled` field doesn't exist on PolicyRule
 
 **Step 3: Implement changes**
@@ -782,18 +782,18 @@ pub fn load(dir: &Path) -> Result<Self> {
 
 **Step 4: Run tests to verify they pass**
 
-Run: `cd /home/openclaw/.openclaw/workspace/projects/ClawAV && cargo test policy --lib -- --nocapture 2>&1 | tail -20`
+Run: `cd /home/openclaw/.openclaw/workspace/projects/ClawTower && cargo test policy --lib -- --nocapture 2>&1 | tail -20`
 Expected: all policy tests pass (old + new)
 
 **Step 5: Run full test suite**
 
-Run: `cd /home/openclaw/.openclaw/workspace/projects/ClawAV && cargo test 2>&1 | tail -5`
+Run: `cd /home/openclaw/.openclaw/workspace/projects/ClawTower && cargo test 2>&1 | tail -5`
 Expected: all tests pass
 
 **Step 6: Commit**
 
 ```bash
-cd /home/openclaw/.openclaw/workspace/projects/ClawAV
+cd /home/openclaw/.openclaw/workspace/projects/ClawTower
 git add src/policy.rs
 git commit -m "feat: policy layering — name-based merge, enabled flag, default.yaml-first ordering"
 ```
@@ -812,38 +812,38 @@ In section 4 ("Set immutable attributes"), change the `for` loop to exclude `con
 
 ```bash
 # Before:
-for f in /usr/local/bin/clawav /etc/clawav/config.toml /etc/systemd/system/clawav.service; do
+for f in /usr/local/bin/clawtower /etc/clawtower/config.toml /etc/systemd/system/clawtower.service; do
 
 # After:
-for f in /usr/local/bin/clawav /etc/systemd/system/clawav.service; do
+for f in /usr/local/bin/clawtower /etc/systemd/system/clawtower.service; do
 ```
 
 Add config.d directory creation after the config copy section (around section 2 or 3, wherever config files are set up):
 
 ```bash
 # Create config.d directory for user overrides
-mkdir -p /etc/clawav/config.d
-chown root:root /etc/clawav/config.d
-chmod 755 /etc/clawav/config.d
-log "Created /etc/clawav/config.d/ for user overrides"
+mkdir -p /etc/clawtower/config.d
+chown root:root /etc/clawtower/config.d
+chmod 755 /etc/clawtower/config.d
+log "Created /etc/clawtower/config.d/ for user overrides"
 ```
 
 **Step 2: Verify syntax**
 
-Run: `bash -n /home/openclaw/.openclaw/workspace/projects/ClawAV/scripts/install.sh`
+Run: `bash -n /home/openclaw/.openclaw/workspace/projects/ClawTower/scripts/install.sh`
 Expected: no errors
 
 **Step 3: Update uninstall.sh — remove chattr -i for config.toml**
 
 In `scripts/uninstall.sh` line 144, remove:
 ```bash
-sudo chattr -i /etc/clawav/config.toml 2>/dev/null || true
+sudo chattr -i /etc/clawtower/config.toml 2>/dev/null || true
 ```
 
 **Step 4: Commit**
 
 ```bash
-cd /home/openclaw/.openclaw/workspace/projects/ClawAV
+cd /home/openclaw/.openclaw/workspace/projects/ClawTower
 git add scripts/install.sh scripts/uninstall.sh
 git commit -m "chore: install script — drop config.toml immutable flag, create config.d/"
 ```
@@ -861,25 +861,25 @@ git commit -m "chore: install script — drop config.toml immutable flag, create
 **Step 1: Write CONFIGURATION.md**
 
 ```markdown
-# ClawAV Configuration Guide
+# ClawTower Configuration Guide
 
 ## Overview
 
-ClawAV uses a layered configuration system. Upstream defaults ship in base files;
+ClawTower uses a layered configuration system. Upstream defaults ship in base files;
 your customizations live in separate override files that are never touched by updates.
 
 ## Config Files
 
 | File | Owner | Purpose |
 |------|-------|---------|
-| `/etc/clawav/config.toml` | Upstream | Base config — replaced on updates |
-| `/etc/clawav/config.d/*.toml` | You | Your overrides — never touched by updates |
-| `/etc/clawav/policies/default.yaml` | Upstream | Base detection rules |
-| `/etc/clawav/policies/*.yaml` | You | Your custom/override rules |
+| `/etc/clawtower/config.toml` | Upstream | Base config — replaced on updates |
+| `/etc/clawtower/config.d/*.toml` | You | Your overrides — never touched by updates |
+| `/etc/clawtower/policies/default.yaml` | Upstream | Base detection rules |
+| `/etc/clawtower/policies/*.yaml` | You | Your custom/override rules |
 
 ## Config Overrides (config.d/)
 
-Create `.toml` files in `/etc/clawav/config.d/`. They're loaded alphabetically
+Create `.toml` files in `/etc/clawtower/config.d/`. They're loaded alphabetically
 after `config.toml` and merged:
 
 - **Scalars** — your value replaces the default
@@ -890,7 +890,7 @@ after `config.toml` and merged:
 Disable Falco and add a host to the network allowlist:
 
 ```toml
-# /etc/clawav/config.d/my-overrides.toml
+# /etc/clawtower/config.d/my-overrides.toml
 [falco]
 enabled = false
 
@@ -901,7 +901,7 @@ allowed_hosts_add = ["myapi.example.com"]
 Remove a default allowlisted CIDR:
 
 ```toml
-# /etc/clawav/config.d/strict-network.toml
+# /etc/clawtower/config.d/strict-network.toml
 [network]
 allowlisted_cidrs_remove = ["169.254.0.0/16"]
 ```
@@ -912,7 +912,7 @@ Prefix with numbers to control load order: `00-first.toml`, `50-middle.toml`, `9
 
 ## Policy Overrides
 
-Create `.yaml` files in `/etc/clawav/policies/`. Rules are merged by `name`:
+Create `.yaml` files in `/etc/clawtower/policies/`. Rules are merged by `name`:
 
 - Same name as a default rule → **your version replaces it entirely**
 - New name → added to the rule set
@@ -921,7 +921,7 @@ Create `.yaml` files in `/etc/clawav/policies/`. Rules are merged by `name`:
 ### Example
 
 ```yaml
-# /etc/clawav/policies/custom.yaml
+# /etc/clawtower/policies/custom.yaml
 rules:
   # Override the exfil rule to add your API
   - name: "block-data-exfiltration"
@@ -945,7 +945,7 @@ to that rule won't auto-merge — this is by design. If you customize it, you ma
 
 ## Updates
 
-When ClawAV updates:
+When ClawTower updates:
 
 1. `config.toml` and `default.yaml` are replaced with new versions
 2. Your files in `config.d/` and custom policy yamls are untouched
@@ -959,7 +959,7 @@ You don't need to do anything.
 Add a note near the top:
 
 ```markdown
-> **Tip:** Use `/etc/clawav/config.d/` for all customizations instead of editing
+> **Tip:** Use `/etc/clawtower/config.d/` for all customizations instead of editing
 > `config.toml` directly. See [CONFIGURATION.md](CONFIGURATION.md) for details.
 > Your overrides survive updates automatically.
 ```
@@ -969,7 +969,7 @@ Add a note near the top:
 Remove any references to `chattr -i`/`chattr +i` for config.toml editing. Replace with:
 
 ```markdown
-Create `/etc/clawav/config.d/my-overrides.toml` with your changes.
+Create `/etc/clawtower/config.d/my-overrides.toml` with your changes.
 See [CONFIGURATION.md](CONFIGURATION.md) for the full guide.
 ```
 
@@ -983,7 +983,7 @@ Add entry:
 **Step 5: Commit**
 
 ```bash
-cd /home/openclaw/.openclaw/workspace/projects/ClawAV
+cd /home/openclaw/.openclaw/workspace/projects/ClawTower
 git add docs/CONFIGURATION.md docs/TUNING.md docs/DAY1-OPERATIONS.md docs/INDEX.md
 git commit -m "docs: configuration layering guide, updated tuning and day1 docs"
 ```
@@ -996,17 +996,17 @@ git commit -m "docs: configuration layering guide, updated tuning and day1 docs"
 
 **Step 1: Run full test suite**
 
-Run: `cd /home/openclaw/.openclaw/workspace/projects/ClawAV && cargo test 2>&1 | tail -10`
+Run: `cd /home/openclaw/.openclaw/workspace/projects/ClawTower && cargo test 2>&1 | tail -10`
 Expected: all tests pass
 
 **Step 2: Build release**
 
-Run: `cd /home/openclaw/.openclaw/workspace/projects/ClawAV && cargo build --release 2>&1 | tail -5`
+Run: `cd /home/openclaw/.openclaw/workspace/projects/ClawTower && cargo build --release 2>&1 | tail -5`
 Expected: build succeeds
 
 **Step 3: Push**
 
 ```bash
-cd /home/openclaw/.openclaw/workspace/projects/ClawAV
+cd /home/openclaw/.openclaw/workspace/projects/ClawTower
 git push origin main
 ```

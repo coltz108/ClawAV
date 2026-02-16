@@ -1,7 +1,7 @@
 # POC Attack Simulation Results
 
 **Date:** 2026-02-16  
-**Platform:** Raspberry Pi 5 (arm64), ClawAV v0.2.8  
+**Platform:** Raspberry Pi 5 (arm64), ClawTower v0.2.8  
 **Scorecard:** 9/10 attacks detected
 
 ---
@@ -106,7 +106,7 @@
 
 2. **Defense in depth is real.** The crontab test (TEST 6) generated 8 alerts from 3 layers. An attacker would need to evade all of them.
 
-3. **Cognitive file protection works.** SOUL.md tampering was immediately quarantined with shadow-copy restore capability. This is ClawAV's unique value for AI agent deployments.
+3. **Cognitive file protection works.** SOUL.md tampering was immediately quarantined with shadow-copy restore capability. This is ClawTower's unique value for AI agent deployments.
 
 4. **The LD_PRELOAD gap is addressable.** Add a behavior pattern matching `LD_PRELOAD=` in process command lines, or an auditd watch on environment variable manipulation. Low effort fix.
 

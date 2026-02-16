@@ -1,6 +1,6 @@
-# ClawAV Monitoring Sources Reference
+# ClawTower Monitoring Sources Reference
 
-ClawAV monitors Linux systems through nine real-time data sources, each implemented as an async task that feeds alerts into a unified channel. This document covers every source, how it works internally, and how to add new ones.
+ClawTower monitors Linux systems through nine real-time data sources, each implemented as an async task that feeds alerts into a unified channel. This document covers every source, how it works internally, and how to add new ones.
 
 ---
 
@@ -23,7 +23,7 @@ ClawAV monitors Linux systems through nine real-time data sources, each implemen
 
 **File:** `src/auditd.rs`
 
-The auditd module is ClawAV's primary event source. It tails `/var/log/audit/audit.log` and parses raw audit records into structured events.
+The auditd module is ClawTower's primary event source. It tails `/var/log/audit/audit.log` and parses raw audit records into structured events.
 
 ### Event Parsing
 
@@ -56,7 +56,7 @@ pub struct ParsedEvent {
 
 ### The Actor System
 
-ClawAV attributes every event to an actor based on the `auid` (audit UID) field:
+ClawTower attributes every event to an actor based on the `auid` (audit UID) field:
 
 - **`Actor::Agent`** — `auid=4294967295` (unset) or missing. The process was spawned by a service/daemon, not an interactive login.
 - **`Actor::Human`** — Any other `auid` value. A real user logged in and triggered this action.
@@ -66,14 +66,14 @@ Alerts are prefixed with `[AGENT]` or `[HUMAN]` tags for quick triage.
 
 ### User Filtering
 
-The `watched_users` parameter limits parsing to specific UIDs. Events from other UIDs are silently dropped — **except** tamper-detection events (`key="clawav-tamper"` or `key="clawav-config"`), which always pass through regardless of user filter.
+The `watched_users` parameter limits parsing to specific UIDs. Events from other UIDs are silently dropped — **except** tamper-detection events (`key="clawtower-tamper"` or `key="clawtower-config"`), which always pass through regardless of user filter.
 
 ### Tamper Detection Keys
 
-ClawAV installs auditd watch rules with special keys:
+ClawTower installs auditd watch rules with special keys:
 
-- **`clawav-tamper`** — Fires on `chattr` execution (immutable flag removal attempts). Severity: Critical.
-- **`clawav-config`** — Fires on writes/attribute changes to protected ClawAV files. Severity: Critical.
+- **`clawtower-tamper`** — Fires on `chattr` execution (immutable flag removal attempts). Severity: Critical.
+- **`clawtower-config`** — Fires on writes/attribute changes to protected ClawTower files. Severity: Critical.
 
 ### Main Entry Point
 
@@ -149,7 +149,7 @@ Parses iptables/netfilter log lines from syslog or kernel messages.
 
 ### How It Works
 
-1. Scans each log line for a configurable prefix string (e.g., `"CLAWAV_NET"`)
+1. Scans each log line for a configurable prefix string (e.g., `"CLAWTOWER_NET"`)
 2. Extracts `SRC`, `DST`, `DPT`, and `PROTO` fields from iptables log format
 3. Classifies traffic using `NetworkAllowlist`
 
@@ -244,7 +244,7 @@ Monitors the audit log file itself for evidence destruction.
 
 ### Log Rotation Awareness
 
-When an inode change is detected, ClawAV calls `crate::sentinel::is_log_rotation()` to check if a rotated copy exists (e.g., `audit.log.1`). If so, the event is downgraded to `Severity::Info` with source `logtamper/rotation`.
+When an inode change is detected, ClawTower calls `crate::sentinel::is_log_rotation()` to check if a rotated copy exists (e.g., `audit.log.1`). If so, the event is downgraded to `Severity::Info` with source `logtamper/rotation`.
 
 ### Polling
 
@@ -273,7 +273,7 @@ Consumes alerts from [Falco](https://falco.org/), an eBPF-based runtime security
 
 ### Priority Mapping
 
-| Falco Priority | ClawAV Severity |
+| Falco Priority | ClawTower Severity |
 |---|---|
 | EMERGENCY, ALERT, CRITICAL | Critical |
 | ERROR, WARNING | Warning |
@@ -285,7 +285,7 @@ Consumes alerts from [Falco](https://falco.org/), an eBPF-based runtime security
 [RuleName] Falco output message
 ```
 
-Falco is **optional** — if it's not installed, ClawAV simply logs "Waiting for Falco log" periodically and continues operating with its other detection layers.
+Falco is **optional** — if it's not installed, ClawTower simply logs "Waiting for Falco log" periodically and continues operating with its other detection layers.
 
 ---
 
@@ -303,7 +303,7 @@ Consumes alerts from [Samhain](https://www.la-samhna.de/samhain/), a file integr
 
 ### Severity Mapping
 
-| Samhain Prefix | ClawAV Severity |
+| Samhain Prefix | ClawTower Severity |
 |---|---|
 | `CRIT`, `ALERT` | Critical |
 | `WARN` | Warning |
@@ -316,7 +316,7 @@ Samhain monitors file checksums, mtimes, permissions, and ownership. Typical ale
 - Policy changes to `/etc/sudoers`, `/etc/shadow`
 - Unexpected file modifications
 
-Like Falco, Samhain is **optional** — ClawAV operates without it but gains deeper file integrity coverage when it's present.
+Like Falco, Samhain is **optional** — ClawTower operates without it but gains deeper file integrity coverage when it's present.
 
 ---
 

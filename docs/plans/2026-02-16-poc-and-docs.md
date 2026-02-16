@@ -1,8 +1,8 @@
-# ClawAV POC & Operational Docs Plan
+# ClawTower POC & Operational Docs Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Prove ClawAV catches real threats, document false positive tuning, and create a "Day 1 Operations" guide — turning ClawAV from "impressive codebase" into "thing I trust to run."
+**Goal:** Prove ClawTower catches real threats, document false positive tuning, and create a "Day 1 Operations" guide — turning ClawTower from "impressive codebase" into "thing I trust to run."
 
 **Architecture:** Three deliverables: (1) a live attack simulation POC that demonstrates detection, (2) a noise analysis from existing logs with tuning recommendations, (3) an operations guide for new installs.
 
@@ -18,7 +18,7 @@
   - Immutable flag MISSING on admin.key.hash / sudoers.d (repeating — likely a config issue, not real tampering)
   - `npm install` flagged as DATA_EXFIL (legitimate package installs)
   - `curl wttr.in` flagged by block-data-exfiltration policy (weather check from Claw)
-  - `lsattr` on ClawAV files flagged as dangerous_commands (ClawAV checking itself)
+  - `lsattr` on ClawTower files flagged as dangerous_commands (ClawTower checking itself)
 - **Real signal buried in noise:** The immutable flag alerts may actually indicate a real issue (files that should be immutable aren't), but repeating 8+ times dilutes severity.
 
 ---
@@ -32,17 +32,17 @@
 
 ```bash
 # Group Critical alerts by message pattern (normalize numbers)
-cat /var/log/clawav/alerts.jsonl | \
+cat /var/log/clawtower/alerts.jsonl | \
   jq -r 'select(.severity=="Critical") | .message' | \
   sed 's/[0-9]\+/#/g' | sort | uniq -c | sort -rn > /tmp/crit-patterns.txt
 
 # Same for Warning
-cat /var/log/clawav/alerts.jsonl | \
+cat /var/log/clawtower/alerts.jsonl | \
   jq -r 'select(.severity=="Warning") | .message' | \
   sed 's/[0-9]\+/#/g' | sort | uniq -c | sort -rn > /tmp/warn-patterns.txt
 
 # Info top 20 (these are the bulk)
-cat /var/log/clawav/alerts.jsonl | \
+cat /var/log/clawtower/alerts.jsonl | \
   jq -r 'select(.severity=="Info") | .source + ": " + .message' | \
   sed 's/[0-9]\+/#/g' | sort | uniq -c | sort -rn | head -20 > /tmp/info-patterns.txt
 ```
@@ -53,7 +53,7 @@ For each pattern, categorize:
 - **True positive** — real security signal, keep as-is
 - **True positive, wrong severity** — real but shouldn't be Critical (e.g., immutable flag check should fire once as Critical, then downgrade to Warning on repeat)
 - **False positive, tunable** — legitimate activity that can be allowlisted (e.g., wttr.in in netpolicy)
-- **False positive, code fix needed** — ClawAV alerting on its own behavior
+- **False positive, code fix needed** — ClawTower alerting on its own behavior
 
 **Step 3: Write docs/NOISE-ANALYSIS.md**
 
@@ -81,7 +81,7 @@ For each false positive pattern, document the specific fix:
 - **Immutable flag repeating:** Should the aggregator deduplicate these more aggressively? Or should the scan only fire once per interval instead of every check?
 - **npm install → DATA_EXFIL:** Add node/npm to behavior.rs safe process list, or add npm registry hosts to netpolicy allowed_hosts?
 - **wttr.in curl:** Add to netpolicy allowed_hosts
-- **ClawAV checking itself:** The lsattr/config read alerts are ClawAV's own scan triggering its own auditd rules — this is a self-referential loop that needs a code-level fix (exclude own PID or own commands from auditd processing)
+- **ClawTower checking itself:** The lsattr/config read alerts are ClawTower's own scan triggering its own auditd rules — this is a self-referential loop that needs a code-level fix (exclude own PID or own commands from auditd processing)
 
 **Step 2: Estimate noise reduction**
 
@@ -111,20 +111,20 @@ git commit -m "docs: tuning guide with concrete noise reduction estimates"
 The script should attempt common agent-threat scenarios and be SAFE (no actual damage). Each test:
 1. Announces what it's about to do
 2. Performs the action
-3. Waits 5 seconds for ClawAV to process
+3. Waits 5 seconds for ClawTower to process
 4. Checks alerts.jsonl for detection
 
 **Scenarios to simulate:**
 
 ```bash
 #!/usr/bin/env bash
-# ClawAV Attack Simulation POC — SAFE, non-destructive
+# ClawTower Attack Simulation POC — SAFE, non-destructive
 set -euo pipefail
 
-ALERTS="/var/log/clawav/alerts.jsonl"
+ALERTS="/var/log/clawtower/alerts.jsonl"
 BEFORE=$(wc -l < "$ALERTS")
 
-echo "=== ClawAV Attack Simulation POC ==="
+echo "=== ClawTower Attack Simulation POC ==="
 echo "Starting alert count: $BEFORE"
 echo ""
 
@@ -182,7 +182,7 @@ sudo bash scripts/poc-attack-sim.sh
 **Step 3: Document results in docs/POC-RESULTS.md**
 
 For each test scenario:
-- **Expected:** What ClawAV should detect
+- **Expected:** What ClawTower should detect
 - **Actual:** What alerts fired (copy exact alert text)
 - **Verdict:** ✅ Detected / ⚠️ Partial / ❌ Missed
 - **Notes:** Severity appropriate? Timing acceptable?
@@ -217,9 +217,9 @@ Target audience: someone who just ran the oneshot installer. Structure:
 
 ## Your First Hour
 - Expected alert volume (~900/hr untuned, ~X/hr tuned)
-- How to check status: `clawav status`, `journalctl -u openclawav`
-- How to read the TUI: `clawav` (requires terminal)
-- How to check alerts: `tail -f /var/log/clawav/alerts.jsonl | jq`
+- How to check status: `clawtower status`, `journalctl -u openclawtower`
+- How to read the TUI: `clawtower` (requires terminal)
+- How to check alerts: `tail -f /var/log/clawtower/alerts.jsonl | jq`
 
 ## Tuning (Do This First)
 - Add your agent's known-good hosts to netpolicy.allowed_hosts
@@ -253,7 +253,7 @@ Target audience: someone who just ran the oneshot installer. Structure:
 ## Ongoing
 - Review Critical alerts daily (should be <10/day after tuning)
 - Update netpolicy allowlist as you add services
-- ClawAV auto-updates from GitHub releases (Ed25519 verified)
+- ClawTower auto-updates from GitHub releases (Ed25519 verified)
 ```
 
 **Step 2: Commit**

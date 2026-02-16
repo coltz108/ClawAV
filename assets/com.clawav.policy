@@ -2,18 +2,18 @@
 <!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
   "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
 <policyconfig>
-  <vendor>ClawAV</vendor>
-  <vendor_url>https://github.com/coltz108/ClawAV</vendor_url>
+  <vendor>ClawTower</vendor>
+  <vendor_url>https://github.com/coltz108/ClawTower</vendor_url>
 
-  <action id="com.clawav.ctl">
-    <description>ClawAV Control</description>
-    <message>Authentication is required to control ClawAV</message>
+  <action id="com.clawtower.ctl">
+    <description>ClawTower Control</description>
+    <message>Authentication is required to control ClawTower</message>
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>
       <allow_active>auth_admin</allow_active>
     </defaults>
-    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/clawav-ctl</annotate>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/clawtower-ctl</annotate>
     <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
   </action>
 </policyconfig>

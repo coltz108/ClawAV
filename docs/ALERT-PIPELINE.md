@@ -1,6 +1,6 @@
 # Alert Pipeline Architecture
 
-Complete guide to ClawAV's alert and monitoring pipeline — from event sources through aggregation to delivery.
+Complete guide to ClawTower's alert and monitoring pipeline — from event sources through aggregation to delivery.
 
 ## Table of Contents
 
@@ -16,7 +16,7 @@ Complete guide to ClawAV's alert and monitoring pipeline — from event sources 
 
 ## Alert Model
 
-Every monitoring subsystem in ClawAV produces `Alert` values — the universal currency of the system.
+Every monitoring subsystem in ClawTower produces `Alert` values — the universal currency of the system.
 
 ### The `Alert` Struct
 
@@ -190,7 +190,7 @@ Every component below receives a `raw_tx: mpsc::Sender<Alert>` clone and sends a
 - **Source tag**: `"scan:<category>"` (e.g., `"scan:cron"`, `"scan:suid"`, `"scan:ssh"`)
 - Periodic security posture scans (30+ checks)
 - Runs on a configurable interval (default in `[scans]` section)
-- One-shot mode available via `clawav scan`
+- One-shot mode available via `clawtower scan`
 - Scan-prefixed sources use a longer dedup window (1 hour) in the aggregator
 
 ### cognitive (`src/cognitive.rs`)
@@ -249,7 +249,7 @@ The aggregator (`src/aggregator.rs`) sits between raw sources and consumers, pre
 3. **Critical Bypass** — `Critical` alerts skip dedup and rate limiting, with only a very tight 5-second dedup window to prevent exact duplicates.
 
 4. **Persistence** — Every alert that passes filtering is:
-   - Appended to the **JSONL log** (`/var/log/clawav/alerts.jsonl` or `/tmp/clawav-<uid>/alerts.jsonl`)
+   - Appended to the **JSONL log** (`/var/log/clawtower/alerts.jsonl` or `/tmp/clawtower-<uid>/alerts.jsonl`)
    - Appended to the **audit chain** (hash-chained tamper-evident log)
    - Pushed to the **API alert store** (shared in-memory store for the HTTP API)
 
@@ -279,7 +279,7 @@ After aggregation, alerts are forwarded to `slack_tx` **only if** `alert.severit
 ### Setup
 
 1. Create a [Slack Incoming Webhook](https://api.slack.com/messaging/webhooks) for your workspace
-2. Configure in `/etc/clawav/config.toml`:
+2. Configure in `/etc/clawtower/config.toml`:
 
 ```toml
 [slack]
@@ -291,7 +291,7 @@ min_slack_level = "warning"   # Only send Warning+ to Slack
 heartbeat_interval = 3600     # Heartbeat every hour (0 = disabled)
 ```
 
-3. Or use the interactive wizard: `clawav configure`
+3. Or use the interactive wizard: `clawtower configure`
 4. Or edit via the TUI Config tab (Tab → Config → slack section → Ctrl+S to save)
 
 ### Alert Formatting
@@ -303,7 +303,7 @@ Alerts are sent as Slack attachments with color-coded sidebars:
 - **Red** (`#dc3545`): Critical
 
 Each message includes:
-- Title: `"{emoji} ClawAV Alert"`
+- Title: `"{emoji} ClawTower Alert"`
 - Text: The alert message
 - Fields: Severity (short), Source (short)
 - Timestamp: Alert creation time
@@ -314,8 +314,8 @@ If the primary webhook fails, the notifier automatically tries `backup_webhook_u
 
 ### Startup & Heartbeat Messages
 
-- **Startup**: `"🛡️ ClawAV watchdog started — independent monitoring active"` sent on boot
-- **Heartbeat**: `"💚 ClawAV heartbeat — uptime: Xh Ym, alerts processed: N"` sent at `heartbeat_interval` seconds (0 disables)
+- **Startup**: `"🛡️ ClawTower watchdog started — independent monitoring active"` sent on boot
+- **Heartbeat**: `"💚 ClawTower heartbeat — uptime: Xh Ym, alerts processed: N"` sent at `heartbeat_interval` seconds (0 disables)
 
 ---
 
@@ -331,7 +331,7 @@ The terminal dashboard (`src/tui.rs`) uses ratatui/crossterm and provides six ta
 | 1 | **Network** | Filtered view: only `source == "network"` alerts |
 | 2 | **Falco** | Filtered view: only `source == "falco"` alerts |
 | 3 | **FIM** | Filtered view: only `source == "samhain"` alerts |
-| 4 | **System** | Status summary: ClawAV version, ACTIVE status, alert counts by severity |
+| 4 | **System** | Status summary: ClawTower version, ACTIVE status, alert counts by severity |
 | 5 | **Config** | Interactive config editor with section sidebar and field editing |
 
 ### Keyboard Shortcuts
@@ -362,7 +362,7 @@ Saving requires write access to the config file. If not running as root, a sudo 
 
 ### Headless Mode
 
-Run with `clawav run --headless` to skip the TUI entirely. Alerts print to stderr. Useful for running as a systemd service.
+Run with `clawtower run --headless` to skip the TUI entirely. Alerts print to stderr. Useful for running as a systemd service.
 
 ---
 

@@ -19,10 +19,10 @@
 ### README.md
 | # | Error | Fix |
 |---|-------|-----|
-| 1 | `clawav admin keygen` — this CLI subcommand does not exist. Admin key is auto-generated on first run via `admin::init_admin_key()` | Replaced both occurrences with explanation of auto-generation |
-| 2 | `clawav --headless` — `--headless` is a flag on the `run` subcommand, not the root | Changed to `clawav run --headless` |
+| 1 | `clawtower admin keygen` — this CLI subcommand does not exist. Admin key is auto-generated on first run via `admin::init_admin_key()` | Replaced both occurrences with explanation of auto-generation |
+| 2 | `clawtower --headless` — `--headless` is a flag on the `run` subcommand, not the root | Changed to `clawtower run --headless` |
 | 3 | TUI described as having "scanner results" and "audit chain viewer" tabs — actual tabs are: Alerts, Network, Falco, FIM, System, Config | Updated to list the six actual tab names |
-| 4 | `log_file = "/var/log/clawav/audit.jsonl"` — misleading; this is ClawAV's own log, not audit JSONL | Changed to `"/var/log/clawav/clawav.log"` (matches CLAUDE.md example) |
+| 4 | `log_file = "/var/log/clawtower/audit.jsonl"` — misleading; this is ClawTower's own log, not audit JSONL | Changed to `"/var/log/clawtower/clawtower.log"` (matches CLAUDE.md example) |
 | 5 | "Full configuration reference" link text said "YAML example" — config is TOML | Changed to "TOML example" |
 
 ### docs/API.md

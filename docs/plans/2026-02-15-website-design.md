@@ -1,10 +1,10 @@
-# ClawAV Website Design Notes
+# ClawTower Website Design Notes
 
 ## Core Message
 
 **"Runtime security for AI agents. Any agent. Any framework."**
 
-ClawAV is not an OpenClaw plugin — it's an OS-level security layer for any AI agent running on Linux. Position it as infrastructure, not an accessory.
+ClawTower is not an OpenClaw plugin — it's an OS-level security layer for any AI agent running on Linux. Position it as infrastructure, not an accessory.
 
 ---
 
@@ -13,10 +13,10 @@ ClawAV is not an OpenClaw plugin — it's an OS-level security layer for any AI 
 ### 1. Hero Section
 
 **Headline:** "Who watches the AI?"
-**Subhead:** "ClawAV is tamper-proof runtime security for autonomous AI agents — Claude Code, Codex, Devin, OpenClaw, or your own. OS-level monitoring that the agent can't disable."
+**Subhead:** "ClawTower is tamper-proof runtime security for autonomous AI agents — Claude Code, Codex, Devin, OpenClaw, or your own. OS-level monitoring that the agent can't disable."
 **CTA:** `curl -sSL ... | sudo bash` one-liner + GitHub link
 
-Visual: Terminal animation showing ClawAV catching an exfiltration attempt in real-time (TUI screenshot or animated SVG).
+Visual: Terminal animation showing ClawTower catching an exfiltration attempt in real-time (TUI screenshot or animated SVG).
 
 ### 2. The Problem
 
@@ -32,11 +32,11 @@ Brief, punchy section:
 
 **Monitor** — Syscall-level behavioral analysis via auditd. File integrity monitoring via inotify. Network connection tracking. Knows the difference between a human and an agent acting on the system.
 
-**Enforce** — Policy engine + clawsudo gatekeeper. The agent runs privileged commands through ClawAV's policy layer, not raw sudo. Allowlist, blocklist, or alert on any command pattern.
+**Enforce** — Policy engine + clawsudo gatekeeper. The agent runs privileged commands through ClawTower's policy layer, not raw sudo. Allowlist, blocklist, or alert on any command pattern.
 
-**Protect** — The "swallowed key" pattern. Once installed, ClawAV is immutable. The binary is locked (`chattr +i`), the service is protected by systemd, the admin key is hashed. The agent cannot modify, disable, or uninstall it. Every tamper attempt is logged and alerted.
+**Protect** — The "swallowed key" pattern. Once installed, ClawTower is immutable. The binary is locked (`chattr +i`), the service is protected by systemd, the admin key is hashed. The agent cannot modify, disable, or uninstall it. Every tamper attempt is logged and alerted.
 
-### 4. How ClawAV Fits (Security Stack)
+### 4. How ClawTower Fits (Security Stack)
 
 Visual: layered diagram showing the full agent security stack
 
@@ -48,19 +48,19 @@ Visual: layered diagram showing the full agent security stack
 │  Code Review (pre-execution)            │  ← LLM code insight, manual review
 │  Behavioral analysis of source code     │
 ├─────────────────────────────────────────┤
-│  ██ CLAWAV — Runtime Monitoring ██      │  ← THIS IS US
+│  ██ CLAWTOWER — Runtime Monitoring ██      │  ← THIS IS US
 │  Syscall monitoring, policy enforcement │
 │  File integrity, behavioral analysis    │
 │  Tamper-proof, agent-agnostic           │
 ├─────────────────────────────────────────┤
-│  Network Policy (continuous)            │  ← ClawAV netpolicy + firewall
+│  Network Policy (continuous)            │  ← ClawTower netpolicy + firewall
 │  Outbound allowlisting, DLP scanning    │
 └─────────────────────────────────────────┘
 ```
 
-Key callout: **"Static scanning catches known threats. ClawAV catches what happens next."**
+Key callout: **"Static scanning catches known threats. ClawTower catches what happens next."**
 
-Mention OpenClaw's VirusTotal integration specifically as an example of pre-install scanning that ClawAV complements. Also mention npm audit, Snyk, etc. — we're not just an OpenClaw companion, we fit into any security stack.
+Mention OpenClaw's VirusTotal integration specifically as an example of pre-install scanning that ClawTower complements. Also mention npm audit, Snyk, etc. — we're not just an OpenClaw companion, we fit into any security stack.
 
 ### 5. Works With Everything
 
@@ -74,13 +74,13 @@ Grid of logos/icons:
 - LangChain / CrewAI / AutoGen
 - "Your custom agent"
 
-Subtext: "No SDK. No integration code. ClawAV works at the OS level — install it, point it at your agent's user, done."
+Subtext: "No SDK. No integration code. ClawTower works at the OS level — install it, point it at your agent's user, done."
 
 ### 6. What It Catches
 
 Real examples, not abstract features:
 
-| Threat | How ClawAV Catches It |
+| Threat | How ClawTower Catches It |
 |--------|----------------------|
 | Prompt injection causes data exfiltration | Behavioral analysis flags unusual `curl`/`scp` to unknown hosts |
 | Malicious skill modifies agent identity files | Cognitive file protection detects SOUL.md/AGENTS.md tampering |
@@ -123,10 +123,10 @@ CTA: GitHub stars, contribute, report issues
 ## Domain
 
 TBD — candidates:
-- clawav.dev
-- clawav.io
-- clawav.security
-- getclawav.com
+- clawtower.dev
+- clawtower.io
+- clawtower.security
+- getclawtower.com
 
 ## Tech Stack (suggestion)
 

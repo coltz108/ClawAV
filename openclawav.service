@@ -1,5 +1,5 @@
 [Unit]
-Description=ClawAV Security Watchdog
+Description=ClawTower Security Watchdog
 After=network.target auditd.service
 Wants=auditd.service
 
@@ -7,11 +7,11 @@ Wants=auditd.service
 Type=simple
 User=root
 Group=root
-ExecStart=/usr/local/bin/clawav /etc/clawav/config.toml
+ExecStart=/usr/local/bin/clawtower /etc/clawtower/config.toml
 
 # Hardening
 ProtectSystem=strict
-ReadWritePaths=/var/log/clawav
+ReadWritePaths=/var/log/clawtower
 ProtectHome=yes
 PrivateTmp=yes
 NoNewPrivileges=yes
@@ -35,7 +35,7 @@ WatchdogSec=60
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=clawav
+SyslogIdentifier=clawtower
 
 [Install]
 WantedBy=multi-user.target

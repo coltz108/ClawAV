@@ -1,6 +1,6 @@
-# CLAUDE.md — ClawAV LLM Onboarding Guide
+# CLAUDE.md — ClawTower LLM Onboarding Guide
 
-> **ClawAV** is a tamper-proof, OS-level security watchdog for AI agents. It monitors the host system for threats, policy violations, and tampering — then alerts via TUI dashboard and Slack. It is designed so that even the AI agent it protects **cannot disable or modify it** (the "swallowed key" pattern).
+> **ClawTower** is a tamper-proof, OS-level security watchdog for AI agents. It monitors the host system for threats, policy violations, and tampering — then alerts via TUI dashboard and Slack. It is designed so that even the AI agent it protects **cannot disable or modify it** (the "swallowed key" pattern).
 
 ## Table of Contents
 
@@ -21,7 +21,7 @@
 
 ### What It Does
 
-ClawAV continuously monitors a Linux host where an AI agent (e.g., OpenClaw) runs. It watches for:
+ClawTower continuously monitors a Linux host where an AI agent (e.g., OpenClaw) runs. It watches for:
 
 - **Command execution** via auditd log tailing (syscalls, EXECVE records)
 - **Behavioral threats** — data exfiltration, privilege escalation, reconnaissance, side-channel attacks, container escapes, persistence mechanisms
@@ -33,18 +33,18 @@ ClawAV continuously monitors a Linux host where an AI agent (e.g., OpenClaw) run
 
 ### The "Swallowed Key" Pattern
 
-ClawAV's critical files (`/usr/local/bin/clawav`, `/etc/clawav/config.toml`, `/etc/clawav/admin.key.hash`, the service file, and sudoers deny rules) are protected with Linux `chattr +i` (immutable flag). The admin key needed to modify these is generated once, displayed, and never stored — the operator must save it externally. The AI agent has no access to the key and cannot:
+ClawTower's critical files (`/usr/local/bin/clawtower`, `/etc/clawtower/config.toml`, `/etc/clawtower/admin.key.hash`, the service file, and sudoers deny rules) are protected with Linux `chattr +i` (immutable flag). The admin key needed to modify these is generated once, displayed, and never stored — the operator must save it externally. The AI agent has no access to the key and cannot:
 
-- Stop the ClawAV service
+- Stop the ClawTower service
 - Modify its config
 - Remove immutable flags
-- Escalate via sudo (blocked by `/etc/sudoers.d/clawav-deny`)
+- Escalate via sudo (blocked by `/etc/sudoers.d/clawtower-deny`)
 
-Auditd rules watch for `chattr` invocations targeting ClawAV files and fire Critical alerts.
+Auditd rules watch for `chattr` invocations targeting ClawTower files and fire Critical alerts.
 
 ### Binaries
 
-- **`clawav`** — Main watchdog binary (TUI dashboard, headless daemon, scanner, updater, etc.)
+- **`clawtower`** — Main watchdog binary (TUI dashboard, headless daemon, scanner, updater, etc.)
 - **`clawsudo`** — Sudo proxy/gatekeeper that evaluates commands against YAML policies before allowing `sudo` execution
 
 ---
@@ -173,7 +173,7 @@ Deserializes TOML config into `Config` struct. Sections:
 Admin key system:
 - Keys are `OCAV-` + 64 hex chars (256 bits), hashed with **Argon2**
 - `init_admin_key()` — Generates key on first run, displays it once, stores only the hash
-- `AdminSocket` — Unix domain socket (`/var/run/clawav/admin.sock`) for authenticated commands
+- `AdminSocket` — Unix domain socket (`/var/run/clawtower/admin.sock`) for authenticated commands
 - Commands: `status`, `scan`, `pause` (max 30 min), `config-update`
 - Rate limiting: 3 failures → 1 hour lockout
 
@@ -184,7 +184,7 @@ Hash-linked integrity log:
 - Hash = SHA-256 of `seq|ts|severity|source|message|prev_hash`
 - Genesis entry uses all-zeros prev_hash
 - `AuditChain::verify(path)` validates entire chain
-- CLI: `clawav verify-audit [path]`
+- CLI: `clawtower verify-audit [path]`
 
 ### `auditd.rs`
 
@@ -194,7 +194,7 @@ Parses Linux audit log (`/var/log/audit/audit.log`):
 - aarch64 syscall number → name mapping (60+ syscalls)
 - Hex-encoded argument decoding
 - User filtering (only watched users, but tamper events bypass filter)
-- `check_tamper_event()` — detects `key="clawav-tamper"` and `key="clawav-config"` auditd keys
+- `check_tamper_event()` — detects `key="clawtower-tamper"` and `key="clawtower-config"` auditd keys
 - Pipeline: `parse_to_event()` → behavior/policy/secureclaw checks → `event_to_alert()`
 
 ### `behavior.rs`
@@ -213,8 +213,8 @@ Has allowlists for safe hosts, normal system operations (`ip neigh`, `crontab -l
 Protects AI agent identity files:
 - **Protected files** (CRIT on change): `SOUL.md`, `IDENTITY.md`, `TOOLS.md`, `AGENTS.md`, `USER.md`, `HEARTBEAT.md`
 - **Watched files** (INFO with diff): `MEMORY.md`
-- SHA-256 baselines stored in `/etc/clawav/cognitive-baselines.sha256`
-- Shadow copies in `/etc/clawav/cognitive-shadow/` for diff generation
+- SHA-256 baselines stored in `/etc/clawtower/cognitive-baselines.sha256`
+- Shadow copies in `/etc/clawtower/cognitive-shadow/` for diff generation
 - Watched files auto-rebaseline on clean changes
 - SecureClaw content scanning only on protected files (watched files contain too many false positives)
 
@@ -250,7 +250,7 @@ Real-time file watcher using `notify` (inotify on Linux):
 | `firewall` | UFW active + rule count |
 | `auditd` | Enabled, immutable mode, rule count |
 | `integrity` | SHA-256 checksums of binary + config |
-| `immutable_flags` | `chattr +i` on critical ClawAV files |
+| `immutable_flags` | `chattr +i` on critical ClawTower files |
 | `apparmor_protection` | AppArmor profiles loaded |
 | `secureclaw_sync` | SecureClaw pattern age |
 | `audit_log` | Log file permissions + existence |
@@ -302,8 +302,8 @@ API key proxy + DLP scanner:
 ### `update.rs`
 
 Self-update system:
-- Checks GitHub releases API (`coltz108/ClawAV`)
-- Downloads platform-specific binary (`clawav-aarch64-linux` or `clawav-x86_64-linux`)
+- Checks GitHub releases API (`coltz108/ClawTower`)
+- Downloads platform-specific binary (`clawtower-aarch64-linux` or `clawtower-x86_64-linux`)
 - Verifies SHA-256 checksum (required) + Ed25519 signature (optional, key embedded at compile time)
 - Binary replacement: `chattr -i` → write temp → rename → `chattr +i`
 - Custom binary install requires admin key; GitHub releases don't (checksum is trust anchor)
@@ -327,11 +327,11 @@ Has a sudo popup modal for privileged operations (saving config to immutable fil
 ### `bin/clawsudo.rs`
 
 Standalone binary — sudo gatekeeper:
-- Loads YAML policies from `/etc/clawav/policies/` and `./policies/`
+- Loads YAML policies from `/etc/clawtower/policies/` and `./policies/`
 - Evaluates command against rules → Allow, Deny, or Ask
 - **Fail-secure**: no rules → deny all
 - Ask mode: creates `/tmp/clawsudo-<hash>.approved` file, sends Slack message, polls for 5 min
-- Logs all decisions to `/var/log/clawav/clawsudo.log` and audit chain
+- Logs all decisions to `/var/log/clawtower/clawsudo.log` and audit chain
 - Exit codes: 0 (ok), 1 (fail), 77 (denied), 78 (timeout)
 
 ---
@@ -373,7 +373,7 @@ Uses `notify::RecommendedWatcher` (inotify). Watches parent directories, filters
 Two-tier protection for AI identity files:
 - Protected files (SOUL.md, etc.) trigger Critical alerts on any change
 - Watched files (MEMORY.md) auto-rebaseline and report diffs as Info/Warn
-- Baselines are SHA-256 hashes persisted to `/etc/clawav/cognitive-baselines.sha256`
+- Baselines are SHA-256 hashes persisted to `/etc/clawtower/cognitive-baselines.sha256`
 
 ### Auto-updater
 
@@ -383,32 +383,32 @@ Background task checking GitHub releases. Flow:
 3. `download_and_verify()` → download + SHA-256 check
 4. `verify_release_signature()` → Ed25519 (if .sig exists)
 5. Write to temp file → `chattr -i` → `rename` → `chattr +i`
-6. Notify Slack → `systemctl restart clawav`
+6. Notify Slack → `systemctl restart clawtower`
 
 ### Admin Key Authentication
 
 - Key format: `OCAV-` + 64 hex chars
 - Hashed with Argon2 (salt from OsRng)
-- Stored at `/etc/clawav/admin.key.hash`
+- Stored at `/etc/clawtower/admin.key.hash`
 - Rate limited: 3 failures → 1 hour lockout
 - Used for: self-update (custom binary only), uninstall, admin socket commands
 
 ### Audit Chain
 
-Append-only hash-linked log. Each entry's hash covers `seq|ts|severity|source|message|prev_hash`. Tamper-evident: modifying any entry breaks the chain. Verified via `clawav verify-audit`.
+Append-only hash-linked log. Each entry's hash covers `seq|ts|severity|source|message|prev_hash`. Tamper-evident: modifying any entry breaks the chain. Verified via `clawtower verify-audit`.
 
 ---
 
 ## Configuration
 
-Config file: `/etc/clawav/config.toml` (TOML format)
+Config file: `/etc/clawtower/config.toml` (TOML format)
 
 ```toml
 [general]
 watched_users = ["1000"]  # Numeric UIDs (not usernames!) — matches auditd uid=/auid= fields
 # watch_all_users = true  # Or monitor all users
 min_alert_level = "info"
-log_file = "/var/log/clawav/clawav.log"
+log_file = "/var/log/clawtower/clawtower.log"
 
 [slack]
 enabled = true
@@ -425,7 +425,7 @@ log_path = "/var/log/audit/audit.log"
 [network]
 enabled = true
 log_path = "/var/log/syslog"
-log_prefix = "CLAWAV_NET"
+log_prefix = "CLAWTOWER_NET"
 source = "auto"  # auto|journald|file
 allowlisted_cidrs = ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "169.254.0.0/16", "127.0.0.0/8", "224.0.0.0/4"]
 allowlisted_ports = [443, 53, 123, 5353]
@@ -480,8 +480,8 @@ blocked_hosts = []
 
 [sentinel]
 enabled = true
-quarantine_dir = "/etc/clawav/quarantine"
-shadow_dir = "/etc/clawav/sentinel-shadow"
+quarantine_dir = "/etc/clawtower/quarantine"
+shadow_dir = "/etc/clawtower/sentinel-shadow"
 debounce_ms = 200
 scan_content = true
 max_file_size_kb = 1024
@@ -560,24 +560,24 @@ Release profile: `strip = true`, `lto = true`, `opt-level = "z"` (size optimized
 
 **`release.yml`** — On tag push (`v*`):
 - Cross-compiles for `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`
-- Builds both `clawav` and `clawsudo` binaries
+- Builds both `clawtower` and `clawsudo` binaries
 - Generates SHA-256 checksums per artifact
 - Creates GitHub release with binaries + checksums
 
 ### Release Signing
 
 - Ed25519 signing key: private key held by maintainer, public key embedded at `src/release-key.pub` (32 bytes, compiled in via `include_bytes!`)
-- Signature file: `clawav-<arch>-linux.sig` (64 bytes, signs SHA-256 of binary)
+- Signature file: `clawtower-<arch>-linux.sig` (64 bytes, signs SHA-256 of binary)
 - Auto-updater verifies signature if `.sig` asset exists, warns if missing
 
 ### Installation
 
 ```bash
 # One-shot install from GitHub release
-curl -sSL https://raw.githubusercontent.com/coltz108/ClawAV/main/scripts/oneshot-install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/coltz108/ClawTower/main/scripts/oneshot-install.sh | sudo bash
 
 # From source
-clawav setup --source --auto
+clawtower setup --source --auto
 
 # Manual
 cargo build --release
@@ -594,14 +594,14 @@ sudo scripts/setup-iptables.sh
 | `install.sh` | Apply tamper-proof hardening (chattr, sudoers deny) |
 | `configure.sh` | Interactive config wizard |
 | `uninstall.sh` | Reverse hardening + remove (requires admin key) |
-| `setup-auditd.sh` | Install auditd rules for ClawAV monitoring |
+| `setup-auditd.sh` | Install auditd rules for ClawTower monitoring |
 | `setup-audit-rules.sh` | Configure specific audit rules (syscall watches, tamper keys) |
 | `setup-iptables.sh` | Configure iptables logging |
 | `setup-apparmor.sh` | Load AppArmor profiles |
 | `setup-falco.sh` | Install and configure Falco eBPF monitoring |
 | `setup-samhain.sh` | Install and configure Samhain file integrity monitoring |
 | `setup-slack.sh` | Configure Slack webhook integration |
-| `setup-sudoers-deny.sh` | Install sudoers deny rules preventing agent from stopping ClawAV |
+| `setup-sudoers-deny.sh` | Install sudoers deny rules preventing agent from stopping ClawTower |
 | `build-preload.sh` | Compile `libclawguard.so` LD_PRELOAD guard library |
 | `enable-preload.sh` | Install and activate the LD_PRELOAD guard |
 | `sync-secureclaw.sh` | Update SecureClaw pattern databases |
@@ -611,7 +611,7 @@ sudo scripts/setup-iptables.sh
 
 ## Additional Public API Details
 
-The following public items are used internally and may be relevant when extending ClawAV:
+The following public items are used internally and may be relevant when extending ClawTower:
 
 ### `api.rs`
 - **`AlertRingBuffer`** — Fixed-capacity ring buffer for the HTTP API alert store
@@ -630,7 +630,7 @@ The following public items are used internally and may be relevant when extendin
 ### `auditd.rs`
 - **`extract_field(line, field)`** — Extracts a named field value from an audit log line
 - **`parse_to_event(line, watched_users)`** — Parses raw audit line into `ParsedEvent`
-- **`check_tamper_event(event)`** — Checks if a `ParsedEvent` is a ClawAV tamper attempt
+- **`check_tamper_event(event)`** — Checks if a `ParsedEvent` is a ClawTower tamper attempt
 - **`event_to_alert(event)`** — Converts a `ParsedEvent` to an `Alert`
 - **`parse_audit_line(line, watched_users)`** — Full pipeline: parse + behavior/policy checks → `Alert`
 
@@ -657,11 +657,11 @@ The following public items are used internally and may be relevant when extendin
 - **`DlpResult`** — Enum: `Clean`, `Blocked(String)`, `Redacted(String)` — result of DLP scanning
 
 ### `update.rs`
-- **`run_update(args)`** — Entry point for the `clawav update` CLI subcommand
+- **`run_update(args)`** — Entry point for the `clawtower update` CLI subcommand
 - **`is_newer_version(current, remote)`** — Semver comparison, returns `true` if remote is newer
 
 ### `audit_chain.rs`
-- **`run_verify_audit(path)`** — CLI entry point for `clawav verify-audit [path]`
+- **`run_verify_audit(path)`** — CLI entry point for `clawtower verify-audit [path]`
 
 ### `tui.rs`
 - **`TuiEvent`** — Enum: `Key(KeyEvent)`, `Tick`, `Alert(Alert)`, `ScanResults(Vec<ScanResult>)`
@@ -799,7 +799,7 @@ use crate::alerts::{Alert, Severity};
 pub fn parse_failure_line(line: &str) -> Option<Alert> {
     // Match lines like: "unit sshd.service entered failed state"
     if line.contains("entered failed state") || line.contains("Failed with result") {
-        let severity = if line.contains("clawav") || line.contains("auditd") {
+        let severity = if line.contains("clawtower") || line.contains("auditd") {
             Severity::Critical  // Security-critical services
         } else {
             Severity::Warning
@@ -850,7 +850,7 @@ mod tests {
 
     #[test]
     fn test_critical_service_failure() {
-        let line = "unit clawav.service entered failed state";
+        let line = "unit clawtower.service entered failed state";
         let alert = parse_failure_line(line).unwrap();
         assert_eq!(alert.severity, Severity::Critical);
     }
@@ -901,7 +901,7 @@ Then add `#[serde(default)] pub systemd_monitor: SystemdMonitorConfig` to the `C
 
 ### Adding Sentinel Watch Paths
 
-Add entries to the `[sentinel]` section in `/etc/clawav/config.toml`:
+Add entries to the `[sentinel]` section in `/etc/clawtower/config.toml`:
 
 ```toml
 # Protect SSH authorized keys from unauthorized modification
@@ -924,7 +924,7 @@ policy = "protected"
 
 # Watch all files in a directory (watches parent dir, matches by prefix)
 [[sentinel.watch_paths]]
-path = "/etc/clawav/"
+path = "/etc/clawtower/"
 patterns = ["*"]
 policy = "watched"
 ```
@@ -959,21 +959,21 @@ To add defaults at compile time, modify `SentinelConfig::default()` in `src/conf
 |------|-----------|
 | **Admin Key** | A 256-bit secret (`OCAV-` + 64 hex chars) generated once at first run, hashed with Argon2, and never stored in plaintext. Required for authenticated admin socket commands, custom binary updates, and uninstall. |
 | **Aggregator** | The central deduplication and rate-limiting stage between alert sources and consumers (TUI, Slack, API, audit chain). Uses fuzzy shape matching to suppress near-duplicate alerts. |
-| **Alert** | The universal event type in ClawAV: a timestamped tuple of severity, source tag, and human-readable message. |
-| **Audit Chain** | A tamper-evident, hash-linked JSONL log where each entry's SHA-256 hash covers its content plus the previous entry's hash, forming a blockchain-style integrity chain. Stored at `/var/log/clawav/audit.chain`. |
+| **Alert** | The universal event type in ClawTower: a timestamped tuple of severity, source tag, and human-readable message. |
+| **Audit Chain** | A tamper-evident, hash-linked JSONL log where each entry's SHA-256 hash covers its content plus the previous entry's hash, forming a blockchain-style integrity chain. Stored at `/var/log/clawtower/audit.chain`. |
 | **Behavioral Analysis** | Hardcoded pattern matching in `behavior.rs` that classifies auditd events into five MITRE ATT&CK-inspired threat categories (data exfiltration, privilege escalation, security tamper, reconnaissance, side-channel). |
 | **clawsudo** | A standalone sudo proxy/gatekeeper binary that evaluates every privileged command against YAML policies before allowing execution. Fail-secure: no rules = deny all. |
 | **Cognitive Files** | AI agent identity files (`SOUL.md`, `AGENTS.md`, `IDENTITY.md`, `TOOLS.md`, `USER.md`, `HEARTBEAT.md`) whose SHA-256 baselines are monitored. Modifications trigger CRITICAL alerts. `MEMORY.md` is a watched (mutable) cognitive file tracked with diffs. |
 | **DLP (Data Loss Prevention)** | Regex-based scanning of outbound API requests through the proxy to detect and block/redact sensitive data (SSNs, credit cards, AWS keys). |
 | **LD_PRELOAD Guard** | `libclawguard.so` — a shared library that intercepts libc syscalls (`execve`, `open`, `openat`, `connect`) at the dynamic linker level, enforcing policy before calls reach the kernel. |
 | **Network Policy** | An allowlist/blocklist engine (`netpolicy.rs`) for outbound connections, supporting wildcard suffix matching on hostnames. |
-| **Quarantine** | The directory (`/etc/clawav/quarantine/`) where modified protected files are preserved for forensic analysis before being restored from their shadow copy. |
+| **Quarantine** | The directory (`/etc/clawtower/quarantine/`) where modified protected files are preserved for forensic analysis before being restored from their shadow copy. |
 | **SecureClaw** | A pattern engine that loads four JSON regex databases (injection patterns, dangerous commands, privacy rules, supply-chain IOCs) from a vendor directory and applies them to file contents and commands. |
 | **Sentinel** | The real-time file integrity monitor built on Linux inotify. Watches configured paths with two policies: **protected** (quarantine + restore from shadow on change) and **watched** (update shadow, info alert with diff). |
-| **Shadow Copy** | A known-good baseline copy of a watched file, stored in `/etc/clawav/sentinel-shadow/` (for Sentinel) or `/etc/clawav/cognitive-shadow/` (for Cognitive monitoring). Used for diff generation and restoration. |
-| **Swallowed Key Pattern** | ClawAV's core security model: critical files are made immutable (`chattr +i`), the admin key is displayed once and never stored, and the AI agent's capabilities are stripped — making it impossible for software alone to disable the watchdog. |
+| **Shadow Copy** | A known-good baseline copy of a watched file, stored in `/etc/clawtower/sentinel-shadow/` (for Sentinel) or `/etc/clawtower/cognitive-shadow/` (for Cognitive monitoring). Used for diff generation and restoration. |
+| **Swallowed Key Pattern** | ClawTower's core security model: critical files are made immutable (`chattr +i`), the admin key is displayed once and never stored, and the AI agent's capabilities are stripped — making it impossible for software alone to disable the watchdog. |
 | **UID** | Numeric User ID in Linux (e.g., `1000`). NOT the username string. `watched_users` in config takes UIDs, not usernames. Find with `id -u <username>`. |
-| **auid** | Audit UID — the original login UID that persists across `su`/`sudo`. Value `4294967295` (0xFFFFFFFF) means "unset" (service/agent, not an interactive login). Used by ClawAV to distinguish agent vs human actions. |
+| **auid** | Audit UID — the original login UID that persists across `su`/`sudo`. Value `4294967295` (0xFFFFFFFF) means "unset" (service/agent, not an interactive login). Used by ClawTower to distinguish agent vs human actions. |
 | **chattr +i** | Linux command to set the "immutable" file attribute. Even root cannot modify/delete the file until `chattr -i` removes it. Core to the swallowed key pattern. |
 | **mpsc** | Multi-producer, single-consumer — Tokio's async channel type used for the three-stage alert pipeline (raw→aggregator→consumers). |
 

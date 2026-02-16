@@ -102,7 +102,7 @@ The aggregator (`src/aggregator.rs`) sits between all sources and all consumers.
 
 ## Hash Chain Verification
 
-Each audit entry in `/var/log/clawav/audit.chain` is a JSON line:
+Each audit entry in `/var/log/clawtower/audit.chain` is a JSON line:
 
 ```json
 {
@@ -120,7 +120,7 @@ Each audit entry in `/var/log/clawav/audit.chain` is a JSON line:
 
 **Genesis:** First entry uses `prev_hash = "0000...0000"` (64 zeros).
 
-**Verification** (`clawav verify-audit`): Reads every entry sequentially, verifies:
+**Verification** (`clawtower verify-audit`): Reads every entry sequentially, verifies:
 1. Sequence numbers are contiguous (1, 2, 3, ...)
 2. Each entry's `prev_hash` matches the previous entry's `hash`
 3. Each entry's `hash` matches the recomputed hash

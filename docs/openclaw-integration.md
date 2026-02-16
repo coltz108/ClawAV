@@ -1,6 +1,6 @@
 # OpenClaw Security Integration
 
-ClawAV monitors the OpenClaw agent infrastructure for security misconfigurations, credential exposure, config drift, and attack surface issues.
+ClawTower monitors the OpenClaw agent infrastructure for security misconfigurations, credential exposure, config drift, and attack surface issues.
 
 ## What's Monitored
 
@@ -33,7 +33,7 @@ All features are controlled via `openclaw:` in `config.yaml`:
 | `audit_command` | `openclaw security audit --deep` | CLI command to run |
 | `audit_on_scan` | `true` | Run audit CLI during periodic scans |
 | `config_drift_check` | `true` | Enable config drift detection |
-| `baseline_path` | `/etc/clawav/openclaw-config-baseline.json` | Drift baseline storage |
+| `baseline_path` | `/etc/clawtower/openclaw-config-baseline.json` | Drift baseline storage |
 | `mdns_check` | `false` | Check for mDNS info leaks |
 | `plugin_watch` | `false` | Monitor extensions directory |
 | `session_log_audit` | `false` | Enable session log auditd rules |

@@ -2,11 +2,11 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Make ClawAV the automated enforcement layer for all OpenClaw security best practices — credential monitoring, permission auditing, config drift detection, and advanced attack surface monitoring.
+**Goal:** Make ClawTower the automated enforcement layer for all OpenClaw security best practices — credential monitoring, permission auditing, config drift detection, and advanced attack surface monitoring.
 
 **Architecture:** Three phases. Phase 1 adds OpenClaw audit CLI as a scan source + credential paths to sentinel + expanded permission checks. Phase 2 adds config drift detection with baseline tracking. Phase 3 adds mDNS, plugin, session log, and Control UI monitoring.
 
-**Tech Stack:** Rust, serde_json (config parsing), tokio (async), notify (inotify via sentinel), existing ClawAV scanner/sentinel/config infrastructure.
+**Tech Stack:** Rust, serde_json (config parsing), tokio (async), notify (inotify via sentinel), existing ClawTower scanner/sentinel/config infrastructure.
 
 **Design Doc:** `docs/plans/2026-02-15-openclaw-security-integration-design.md`
 
@@ -51,7 +51,7 @@ fn test_openclaw_config_custom() {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /home/openclaw/.openclaw/workspace/projects/ClawAV && cargo test test_openclaw_config -- --nocapture`
+Run: `cd /home/openclaw/.openclaw/workspace/projects/ClawTower && cargo test test_openclaw_config -- --nocapture`
 Expected: FAIL — `OpenClawConfig` doesn't exist
 
 **Step 3: Write minimal implementation**
@@ -87,7 +87,7 @@ pub struct OpenClawConfig {
 fn default_openclaw_config_path() -> String { "/home/openclaw/.openclaw/openclaw.json".to_string() }
 fn default_openclaw_state_dir() -> String { "/home/openclaw/.openclaw".to_string() }
 fn default_openclaw_audit_cmd() -> String { "openclaw security audit --deep".to_string() }
-fn default_openclaw_baseline_path() -> String { "/etc/clawav/openclaw-config-baseline.json".to_string() }
+fn default_openclaw_baseline_path() -> String { "/etc/clawtower/openclaw-config-baseline.json".to_string() }
 
 impl Default for OpenClawConfig {
     fn default() -> Self {
@@ -738,7 +738,7 @@ In `src/scanner.rs`, in `run_all_scans()`:
 // Config drift detection (Phase 2)
 results.extend(crate::openclaw_config::scan_config_drift(
     "/home/openclaw/.openclaw/openclaw.json",
-    "/etc/clawav/openclaw-config-baseline.json",
+    "/etc/clawtower/openclaw-config-baseline.json",
 ));
 ```
 
@@ -786,12 +786,12 @@ fn test_parse_mdns_no_openclaw() {
 ```rust
 fn check_mdns_openclaw_leak(avahi_output: &str) -> ScanResult {
     let openclaw_services: Vec<&str> = avahi_output.lines()
-        .filter(|l| l.to_lowercase().contains("openclaw") || l.to_lowercase().contains("clawav"))
+        .filter(|l| l.to_lowercase().contains("openclaw") || l.to_lowercase().contains("clawtower"))
         .collect();
     
     if openclaw_services.is_empty() {
         ScanResult::new("openclaw:mdns", ScanStatus::Pass,
-            "No OpenClaw/ClawAV services advertised via mDNS")
+            "No OpenClaw/ClawTower services advertised via mDNS")
     } else {
         ScanResult::new("openclaw:mdns", ScanStatus::Warn,
             &format!("OpenClaw services advertised via mDNS (info leak): {}",

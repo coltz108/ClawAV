@@ -1,31 +1,31 @@
-# ClawAV — Day 1 Operations Guide
+# ClawTower — Day 1 Operations Guide
 
-You just installed ClawAV. Here's what you need to know.
+You just installed ClawTower. Here's what you need to know.
 
 ---
 
 ## 1. What Just Happened
 
-ClawAV installed the following components:
+ClawTower installed the following components:
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
-| `clawav` binary | `/usr/local/bin/clawav` | Main watchdog daemon + CLI |
+| `clawtower` binary | `/usr/local/bin/clawtower` | Main watchdog daemon + CLI |
 | `clawsudo` binary | `/usr/local/bin/clawsudo` | Sudo proxy that enforces policies |
-| Config | `/etc/clawav/config.toml` | Main configuration |
-| Policies | `/etc/clawav/policies/` (or `./policies/`) | Detection + enforcement rules |
-| Admin key hash | `/etc/clawav/admin.key.hash` | Immutable admin authentication |
-| Quarantine | `/etc/clawav/quarantine/` | Files flagged by sentinel |
-| SecureClaw vendor | `/etc/clawav/secureclaw/` | Third-party security rules |
-| Config overrides | `/etc/clawav/config.d/` | Your customizations (never touched by updates) |
-| Logs | `/var/log/clawav/watchdog.log` | Primary log file |
-| systemd service | `clawav.service` | Keeps the watchdog running |
+| Config | `/etc/clawtower/config.toml` | Main configuration |
+| Policies | `/etc/clawtower/policies/` (or `./policies/`) | Detection + enforcement rules |
+| Admin key hash | `/etc/clawtower/admin.key.hash` | Immutable admin authentication |
+| Quarantine | `/etc/clawtower/quarantine/` | Files flagged by sentinel |
+| SecureClaw vendor | `/etc/clawtower/secureclaw/` | Third-party security rules |
+| Config overrides | `/etc/clawtower/config.d/` | Your customizations (never touched by updates) |
+| Logs | `/var/log/clawtower/watchdog.log` | Primary log file |
+| systemd service | `clawtower.service` | Keeps the watchdog running |
 
-**Immutable files** (set with `chattr +i`): The binary, service file, and admin key hash are made immutable to prevent tampering. Config files are **not** immutable — customize via `/etc/clawav/config.d/` override files (see [CONFIGURATION.md](CONFIGURATION.md)).
+**Immutable files** (set with `chattr +i`): The binary, service file, and admin key hash are made immutable to prevent tampering. Config files are **not** immutable — customize via `/etc/clawtower/config.d/` override files (see [CONFIGURATION.md](CONFIGURATION.md)).
 
-**Log sources ClawAV monitors:**
+**Log sources ClawTower monitors:**
 - `/var/log/audit/audit.log` — auditd syscall events
-- `/var/log/syslog` — network events (tagged `CLAWAV_NET`)
+- `/var/log/syslog` — network events (tagged `CLAWTOWER_NET`)
 - Falco / Samhain logs (if installed)
 
 ---
@@ -51,18 +51,18 @@ Out of the box, expect approximately:
 
 ```bash
 # Service status
-systemctl status clawav
+systemctl status clawtower
 
 # Recent alerts
-tail -f /var/log/clawav/watchdog.log
+tail -f /var/log/clawtower/watchdog.log
 
 # Alert counts by severity (last hour)
-grep -c "Critical" /var/log/clawav/watchdog.log
+grep -c "Critical" /var/log/clawtower/watchdog.log
 ```
 
 ### Reading the TUI
 
-If ClawAV has a TUI mode (`clawav tui`):
+If ClawTower has a TUI mode (`clawtower tui`):
 - **Red/Critical** — potential threats or broken rules (most are false positives until tuned)
 - **Yellow/Warning** — suspicious activity or config issues
 - **Blue/Info** — normal operational logging (connections, scans, audit events)
@@ -75,7 +75,7 @@ If ClawAV has a TUI mode (`clawav tui`):
 systemctl status auditd
 
 # Are immutable flags set?
-lsattr /etc/clawav/admin.key.hash
+lsattr /etc/clawtower/admin.key.hash
 
 # Is the API responding?
 curl -s http://localhost:18791/health
@@ -91,7 +91,7 @@ curl -s http://localhost:18791/health
 
 These three changes eliminate ~95% of false-positive Critical alerts:
 
-**1. Stop the sentinel quarantine loop** — ClawAV's sentinel is quarantining your OpenClaw skill files in a loop (~2,748 Critical alerts/18h). Add sentinel path exclusions per TUNING.md Fix 1.
+**1. Stop the sentinel quarantine loop** — ClawTower's sentinel is quarantining your OpenClaw skill files in a loop (~2,748 Critical alerts/18h). Add sentinel path exclusions per TUNING.md Fix 1.
 
 **2. Fix the broken `detect-scheduled-tasks` rule** — It triggers on every `cat` command (~137 false warnings/18h). Remove the `command_contains` block per TUNING.md Fix 2.
 
@@ -102,7 +102,7 @@ These three changes eliminate ~95% of false-positive Critical alerts:
 Restart the service:
 
 ```bash
-sudo systemctl restart clawav
+sudo systemctl restart clawtower
 ```
 
 Monitor for 30 minutes and verify alert volume has dropped.
@@ -132,7 +132,7 @@ After tuning, these patterns are expected and healthy:
 These are **real threat indicators** — investigate immediately:
 
 - **`detect-reverse-shell`** — Any match is serious. Check the command and source.
-- **`deny-clawav-tamper`** — Someone/something is trying to modify ClawAV itself.
+- **`deny-clawtower-tamper`** — Someone/something is trying to modify ClawTower itself.
 - **`deny-firewall-changes`** — Firewall being disabled or flushed.
 - **`detect-ssh-key-injection`** — Unauthorized SSH key added.
 - **`detect-history-tampering`** — Someone covering their tracks.
@@ -168,25 +168,25 @@ These are **known benign patterns** you'll see regularly:
 
 ## 7. Your Admin Key
 
-During installation, ClawAV generated an **admin key**. This is critical.
+During installation, ClawTower generated an **admin key**. This is critical.
 
 ### What It Does
-- Authenticates privileged operations via the ClawAV API
+- Authenticates privileged operations via the ClawTower API
 - Required to modify immutable configuration
 - Required to override enforcement policies
 - Used by `clawsudo` for elevated operations
 
 ### Where It Lives
-- The key hash is stored at `/etc/clawav/admin.key.hash` (immutable)
+- The key hash is stored at `/etc/clawtower/admin.key.hash` (immutable)
 - The actual key was shown **once** during installation
 
 ### If You Lose It
 The admin key hash file is immutable (`chattr +i`). Recovery requires:
 
 1. Boot into single-user mode or live USB
-2. Remove the immutable flag: `chattr -i /etc/clawav/admin.key.hash`
-3. Regenerate: `clawav admin reset-key`
-4. Re-set the immutable flag: `chattr +i /etc/clawav/admin.key.hash`
+2. Remove the immutable flag: `chattr -i /etc/clawtower/admin.key.hash`
+3. Regenerate: `clawtower admin reset-key`
+4. Re-set the immutable flag: `chattr +i /etc/clawtower/admin.key.hash`
 
 **Write it down. Store it securely. You will need it.**
 
@@ -207,47 +207,47 @@ After tuning, aim for:
 |-----------|------|
 | Daily | Check Critical alert count; investigate any new ones |
 | Weekly | Review Warning trends; check for new false positive patterns |
-| Monthly | Review and update policy allowlists; check for ClawAV updates |
+| Monthly | Review and update policy allowlists; check for ClawTower updates |
 | After changes | Any new software/service → check if it triggers false positives |
 
 ### Auto-Updates
 
-ClawAV does not auto-update by default. Check for updates:
+ClawTower does not auto-update by default. Check for updates:
 
 ```bash
 # If installed via git
-cd /path/to/ClawAV && git pull
+cd /path/to/ClawTower && git pull
 
 # Rebuild
 cargo build --release
 
 # Restart
-sudo systemctl restart clawav
+sudo systemctl restart clawtower
 ```
 
 ### SecureClaw Rules
 
-Vendor security rules live in `/etc/clawav/secureclaw/`. These may update separately. Check the `scan:secureclaw last updated` warning — if it shows empty, the vendor rules haven't been populated yet.
+Vendor security rules live in `/etc/clawtower/secureclaw/`. These may update separately. Check the `scan:secureclaw last updated` warning — if it shows empty, the vendor rules haven't been populated yet.
 
 ### Log Rotation
 
-Ensure `/var/log/clawav/watchdog.log` is covered by logrotate. At ~900 alerts/hr untuned (~420/hr tuned), logs grow fast. Check:
+Ensure `/var/log/clawtower/watchdog.log` is covered by logrotate. At ~900 alerts/hr untuned (~420/hr tuned), logs grow fast. Check:
 
 ```bash
-cat /etc/logrotate.d/clawav
+cat /etc/logrotate.d/clawtower
 ```
 
 If it doesn't exist, create one:
 
 ```
-/var/log/clawav/watchdog.log {
+/var/log/clawtower/watchdog.log {
     daily
     rotate 14
     compress
     missingok
     notifempty
     postrotate
-        systemctl reload clawav 2>/dev/null || true
+        systemctl reload clawtower 2>/dev/null || true
     endscript
 }
 ```
@@ -258,11 +258,11 @@ If it doesn't exist, create one:
 
 | What | Command |
 |------|---------|
-| Service status | `systemctl status clawav` |
-| Live alerts | `tail -f /var/log/clawav/watchdog.log` |
-| TUI | `clawav tui` |
-| Manual scan | `clawav scan` |
+| Service status | `systemctl status clawtower` |
+| Live alerts | `tail -f /var/log/clawtower/watchdog.log` |
+| TUI | `clawtower tui` |
+| Manual scan | `clawtower scan` |
 | API health | `curl http://localhost:18791/health` |
-| Config | `/etc/clawav/config.toml` |
-| Policies | `/etc/clawav/policies/` or `./policies/` |
-| Quarantine | `/etc/clawav/quarantine/` |
+| Config | `/etc/clawtower/config.toml` |
+| Policies | `/etc/clawtower/policies/` or `./policies/` |
+| Quarantine | `/etc/clawtower/quarantine/` |

@@ -1,4 +1,4 @@
-# ClawAV Documentation Index
+# ClawTower Documentation Index
 
 Quick map to every doc in this project. Start with what you need.
 

@@ -29,7 +29,7 @@ Also reduce scan interval from 3600s → 300s for persistence checks specificall
 **Fix:** Two approaches:
 1. **auditd connect() syscall monitoring** — catches ALL outbound connections regardless of tool:
    ```
-   -a always,exit -F arch=b64 -S connect -F uid=1000 -k clawav_net_connect
+   -a always,exit -F arch=b64 -S connect -F uid=1000 -k clawtower_net_connect
    ```
    Parse in auditd.rs, extract destination, feed to netpolicy allowlist.
    Filter out: loopback, LAN, known OpenClaw endpoints.
@@ -58,8 +58,8 @@ Also reduce scan interval from 3600s → 300s for persistence checks specificall
 **Files:** `src/sentinel.rs`
 
 ### T3.5: Shadow/Quarantine Permission Hardening
-**Problem:** `/etc/clawav/sentinel-shadow/` and `/etc/clawav/quarantine/` are world-readable — info leak.
-**Fix:** `chmod 700` on both directories in install.sh/oneshot-install.sh. Only root (clawav process) needs access.
+**Problem:** `/etc/clawtower/sentinel-shadow/` and `/etc/clawtower/quarantine/` are world-readable — info leak.
+**Fix:** `chmod 700` on both directories in install.sh/oneshot-install.sh. Only root (clawtower process) needs access.
 
 **Files:** `scripts/install.sh`, `scripts/oneshot-install.sh`
 

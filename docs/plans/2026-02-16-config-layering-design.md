@@ -1,4 +1,4 @@
-# ClawAV Config Layering Design
+# ClawTower Config Layering Design
 
 **Date:** 2026-02-16
 **Status:** Approved
@@ -13,9 +13,9 @@
 
 ## Config Layering
 
-**Base:** `/etc/clawav/config.toml` — upstream-owned, replaced on updates.
+**Base:** `/etc/clawtower/config.toml` — upstream-owned, replaced on updates.
 
-**Overrides:** `/etc/clawav/config.d/*.toml` — user-owned, never touched by updates. Loaded alphabetically after base.
+**Overrides:** `/etc/clawtower/config.d/*.toml` — user-owned, never touched by updates. Loaded alphabetically after base.
 
 ### Resolution Rules
 
@@ -30,7 +30,7 @@
 ### Example
 
 ```toml
-# /etc/clawav/config.d/my-overrides.toml
+# /etc/clawtower/config.d/my-overrides.toml
 [falco]
 enabled = false
 
@@ -41,9 +41,9 @@ allowed_hosts_remove = ["wttr.in"]
 
 ## Policy Layering
 
-**Base:** `/etc/clawav/policies/default.yaml` — upstream-owned, replaced on updates.
+**Base:** `/etc/clawtower/policies/default.yaml` — upstream-owned, replaced on updates.
 
-**User policies:** `/etc/clawav/policies/*.yaml` — loaded alphabetically, `default.yaml` always first.
+**User policies:** `/etc/clawtower/policies/*.yaml` — loaded alphabetically, `default.yaml` always first.
 
 ### Resolution Rules
 
@@ -55,7 +55,7 @@ allowed_hosts_remove = ["wttr.in"]
 ### Example
 
 ```yaml
-# /etc/clawav/policies/custom.yaml
+# /etc/clawtower/policies/custom.yaml
 rules:
   - name: "block-data-exfiltration"
     description: "Customized exfil rule"
@@ -76,8 +76,8 @@ Overriding a rule by name means the user owns that rule — upstream additions w
 
 ## Update Flow
 
-1. Replace `/etc/clawav/config.toml` with new upstream version
-2. Replace `/etc/clawav/policies/default.yaml` with new upstream version
+1. Replace `/etc/clawtower/config.toml` with new upstream version
+2. Replace `/etc/clawtower/policies/default.yaml` with new upstream version
 3. Never touch `config.d/*` or user policy files
 4. Restart service
 
@@ -86,7 +86,7 @@ Users see: update happens, service restarts, customizations untouched.
 ## Install Flow
 
 1. Write `config.toml` and `default.yaml`
-2. Create empty `/etc/clawav/config.d/` directory
+2. Create empty `/etc/clawtower/config.d/` directory
 3. Set ownership root:root 644 on all config files
 4. No immutable flags at any point
 5. Start service
@@ -104,7 +104,7 @@ Users see: update happens, service restarts, customizations untouched.
 - Filter out disabled rules before passing to engine
 
 ### Install script
-- Create `/etc/clawav/config.d/`
+- Create `/etc/clawtower/config.d/`
 - Remove all `chattr +i` / `chattr -i` calls
 - Set ownership root:root 644
 

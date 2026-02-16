@@ -1,6 +1,6 @@
 # Sentinel: Real-Time File Integrity Monitor
 
-ClawAV's **Sentinel** is a real-time file watcher built on Linux inotify. It detects changes to critical files the instant they happen, generates diffs against shadow copies, scans content for threats via SecureClaw, and either quarantines+restores (protected files) or updates its baseline (watched files).
+ClawTower's **Sentinel** is a real-time file watcher built on Linux inotify. It detects changes to critical files the instant they happen, generates diffs against shadow copies, scans content for threats via SecureClaw, and either quarantines+restores (protected files) or updates its baseline (watched files).
 
 ---
 
@@ -117,7 +117,7 @@ Shadow copies are the "known-good" baselines the Sentinel compares against.
 
 ### Storage Location
 
-Default: `/etc/clawav/sentinel-shadow/` (configurable via `shadow_dir`)
+Default: `/etc/clawtower/sentinel-shadow/` (configurable via `shadow_dir`)
 
 ### Naming Scheme
 
@@ -153,7 +153,7 @@ When a protected file is modified or a threat is detected, the modified content 
 
 ### Location
 
-Default: `/etc/clawav/quarantine/` (configurable via `quarantine_dir`)
+Default: `/etc/clawtower/quarantine/` (configurable via `quarantine_dir`)
 
 ### File Naming
 
@@ -177,13 +177,13 @@ Quarantined files retain the exact content that triggered the alert. You can:
 
 ```bash
 # List quarantined files
-ls -la /etc/clawav/quarantine/
+ls -la /etc/clawtower/quarantine/
 
 # View what was injected
-cat /etc/clawav/quarantine/20260214_203500_SOUL.md
+cat /etc/clawtower/quarantine/20260214_203500_SOUL.md
 
 # Diff against the restored version
-diff /etc/clawav/quarantine/20260214_203500_SOUL.md /home/openclaw/.openclaw/workspace/SOUL.md
+diff /etc/clawtower/quarantine/20260214_203500_SOUL.md /home/openclaw/.openclaw/workspace/SOUL.md
 ```
 
 ---
@@ -244,15 +244,15 @@ If `/var/log/auth.log` changes and `/var/log/auth.log.1` exists, it's classified
 
 ## Configuration
 
-The Sentinel is configured in the `[sentinel]` section of `/etc/clawav/config.toml`.
+The Sentinel is configured in the `[sentinel]` section of `/etc/clawtower/config.toml`.
 
 ### Full Schema
 
 ```toml
 [sentinel]
 enabled = true              # Master switch (default: true)
-shadow_dir = "/etc/clawav/sentinel-shadow"   # Where shadow copies live
-quarantine_dir = "/etc/clawav/quarantine"    # Where quarantined files go
+shadow_dir = "/etc/clawtower/sentinel-shadow"   # Where shadow copies live
+quarantine_dir = "/etc/clawtower/quarantine"    # Where quarantined files go
 debounce_ms = 200           # Coalesce events within this window (default: 200)
 scan_content = true         # Run SecureClaw on changed content (default: true)
 max_file_size_kb = 1024     # Skip files larger than this (default: 1024)
@@ -298,7 +298,7 @@ policy = "protected"
 
 # Watch a config file for changes (but allow them)
 [[sentinel.watch_paths]]
-path = "/etc/clawav/config.toml"
+path = "/etc/clawtower/config.toml"
 patterns = ["*"]
 policy = "watched"
 
@@ -409,7 +409,7 @@ policy = "protected"
 
 ## Relationship to Cognitive Monitoring
 
-ClawAV has **two layers** of file integrity monitoring:
+ClawTower has **two layers** of file integrity monitoring:
 
 | | Sentinel (`sentinel.rs`) | Cognitive (`cognitive.rs`) |
 |---|---|---|
@@ -420,7 +420,7 @@ ClawAV has **two layers** of file integrity monitoring:
 | **Watched action** | Update shadow, Info alert | Update hash + shadow, Warn alert with diff |
 | **Content scanning** | SecureClaw patterns on every change | Hash-only comparison (SecureClaw not invoked; watched files skip content scanning to avoid false positives) |
 | **Config** | `[sentinel]` in config.toml | Hardcoded file lists |
-| **Shadow location** | `/etc/clawav/sentinel-shadow/` | `/etc/clawav/cognitive-shadow/` |
+| **Shadow location** | `/etc/clawtower/sentinel-shadow/` | `/etc/clawtower/cognitive-shadow/` |
 
 ### Why Both?
 
@@ -441,7 +441,7 @@ On startup, the Sentinel sends an Info alert:
 Sentinel watching N paths
 ```
 
-Check ClawAV's log file or Slack channel for this message.
+Check ClawTower's log file or Slack channel for this message.
 
 ### Common Issues
 
@@ -452,13 +452,13 @@ Check ClawAV's log file or Slack channel for this message.
 | No alerts for file changes | Parent directory doesn't exist | Create the directory first |
 | File keeps reverting | Path has `protected` policy | Change to `watched` if edits are intended |
 | Too many alerts | Debounce too low | Increase `debounce_ms` (try 500-1000) |
-| "Shadow dir" error on startup | Permission denied | Ensure ClawAV can write to `shadow_dir` |
+| "Shadow dir" error on startup | Permission denied | Ensure ClawTower can write to `shadow_dir` |
 | Large files ignored | Size exceeds limit | Increase `max_file_size_kb` |
 | False positives on log files | Missing rotation detection | Ensure rotated files have `.1`/`.0`/`.gz` suffixes |
 
 ### Viewing Alerts
 
-Sentinel alerts flow through ClawAV's standard alert pipeline (see [ALERT-PIPELINE.md](ALERT-PIPELINE.md)):
+Sentinel alerts flow through ClawTower's standard alert pipeline (see [ALERT-PIPELINE.md](ALERT-PIPELINE.md)):
 
 - **Slack** — Critical alerts are forwarded to your configured Slack channel
 - **Log file** — All alerts (Info and above) are written to the log at `general.log_file`
@@ -468,25 +468,25 @@ Sentinel alerts flow through ClawAV's standard alert pipeline (see [ALERT-PIPELI
 
 ```bash
 # List shadow copies
-ls -la /etc/clawav/sentinel-shadow/
+ls -la /etc/clawtower/sentinel-shadow/
 
 # See which file a shadow belongs to (filename is embedded)
-ls /etc/clawav/sentinel-shadow/
+ls /etc/clawtower/sentinel-shadow/
 # Output: a1b2c3d4e5f67890_SOUL.md  f9e8d7c6b5a43210_AGENTS.md
 
 # List quarantined files (sorted by time)
-ls -lt /etc/clawav/quarantine/
+ls -lt /etc/clawtower/quarantine/
 
 # Compare quarantined version to current
-diff /etc/clawav/quarantine/20260214_203500_SOUL.md ~/.openclaw/workspace/SOUL.md
+diff /etc/clawtower/quarantine/20260214_203500_SOUL.md ~/.openclaw/workspace/SOUL.md
 ```
 
 ### Restarting the Sentinel
 
-The Sentinel runs as part of the ClawAV daemon. Restart ClawAV to restart the Sentinel:
+The Sentinel runs as part of the ClawTower daemon. Restart ClawTower to restart the Sentinel:
 
 ```bash
-sudo systemctl restart clawav
+sudo systemctl restart clawtower
 ```
 
 ## See Also

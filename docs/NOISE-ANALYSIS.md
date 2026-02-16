@@ -1,4 +1,4 @@
-# ClawAV Noise Analysis — 18h Production Logs
+# ClawTower Noise Analysis — 18h Production Logs
 
 **Log period:** 2026-02-14 22:27 → 2026-02-15 16:39 EST (~18.2 hours)
 **Total alerts:** 16,534
@@ -21,7 +21,7 @@
 
 ### 1. Sentinel THREAT on SKILL.md files (1,458 alerts — 50.5% of Critical)
 
-**Pattern:** `sentinel: THREAT detected in .../skills/*/SKILL.md, quarantined to /etc/clawav/quarantine/…`
+**Pattern:** `sentinel: THREAT detected in .../skills/*/SKILL.md, quarantined to /etc/clawtower/quarantine/…`
 **Count:** 243 each × 6 skill files = 1,458
 **Classification:** ❌ **False positive, code fix**
 
@@ -45,15 +45,15 @@ This is the flip side of pattern #1. Sentinel quarantines → restores from shad
 
 ### 3. Immutable flag MISSING alerts (27 alerts)
 
-**Pattern:** `scan:immutable_flags: 🚨 Immutable flag MISSING on: /etc/clawav/admin.key.hash, /etc/sudoers.d/clawav-deny`
-**Also:** `scan:immutable_flags: Critical files MISSING: /etc/sudoers.d/clawav-deny` (18 alerts)
+**Pattern:** `scan:immutable_flags: 🚨 Immutable flag MISSING on: /etc/clawtower/admin.key.hash, /etc/sudoers.d/clawtower-deny`
+**Also:** `scan:immutable_flags: Critical files MISSING: /etc/sudoers.d/clawtower-deny` (18 alerts)
 **Count:** 27 (flags missing) + 18 (file missing) = 45 total
 **Classification:** ⚠️ **True positive, wrong severity** (for repeats)
 
-The first occurrence is a real signal — immutable flags should be set. But repeating every scan cycle (45 times in 18h) makes it noise. The underlying issue (`/etc/sudoers.d/clawav-deny` missing) is a real config problem that should be fixed once.
+The first occurrence is a real signal — immutable flags should be set. But repeating every scan cycle (45 times in 18h) makes it noise. The underlying issue (`/etc/sudoers.d/clawtower-deny` missing) is a real config problem that should be fixed once.
 
 **Recommended action:**
-1. Fix the root cause: create `/etc/sudoers.d/clawav-deny` and set immutable flags
+1. Fix the root cause: create `/etc/sudoers.d/clawtower-deny` and set immutable flags
 2. Deduplicate: only alert once per boot or once per hour for persistent issues
 3. **Priority: P1** — real issue, but repeat alerts are noise
 
@@ -115,14 +115,14 @@ Breakdown:
 - `BEHAVIOR:PRIV_ESC` cat /etc/shadow (1): **True positive** — keep
 - `BEHAVIOR:SEC_TAMPER` crontab (4): **True positive** — keep
 
-### 10. deny-clawav-config-write false positives (10 alerts)
+### 10. deny-clawtower-config-write false positives (10 alerts)
 
-**Pattern:** `policy: [POLICY:deny-clawav-config-write] … cat/grep /etc/clawav/config.toml`
+**Pattern:** `policy: [POLICY:deny-clawtower-config-write] … cat/grep /etc/clawtower/config.toml`
 **Classification:** ❌ **False positive, code fix**
 
 Reading config files is not writing. The rule name says "write" but triggers on reads (`cat`, `grep`).
 
-**Recommended action:** Fix the policy regex to only match write operations (not `cat`/`grep`/`clawav scan --config`).
+**Recommended action:** Fix the policy regex to only match write operations (not `cat`/`grep`/`clawtower scan --config`).
 
 ### 11. Firewall rules changed (1 alert)
 
@@ -157,7 +157,7 @@ Reading config files is not writing. The rule name says "write" but triggers on 
 
 **Key finding:** The `detect-scheduled-tasks` policy is **critically broken** — it triggers on nearly every `cat` command (137 alerts). The regex likely matches `cat` thinking it's `crontab` or `at`. This needs an immediate fix.
 
-**Key finding:** The `BEHAVIOR:SEC_TAMPER` rule flags the GCC linker (`collect2`, `ld`) during normal Rust compilation. 22 false positives from building ClawAV itself.
+**Key finding:** The `BEHAVIOR:SEC_TAMPER` rule flags the GCC linker (`collect2`, `ld`) during normal Rust compilation. 22 false positives from building ClawTower itself.
 
 ---
 
@@ -170,10 +170,10 @@ Reading config files is not writing. The rule name says "write" but triggers on 
 | Falco waiting for log | 1,720 | Falco not installed — remove or install |
 | Samhain waiting for log | 888 | Samhain not installed — remove or install |
 | auditd HUMAN events | ~800 | Normal dev activity audit trail — keep |
-| ClawAV service startup | 260 | 52 restarts in 18h — investigate stability |
+| ClawTower service startup | 260 | 52 restarts in 18h — investigate stability |
 | auditd exec events | ~200 | Normal — keep |
 
-**Key finding:** 52 ClawAV watchdog restarts in 18h suggests the service is crashing/restarting every ~21 minutes. This should be investigated separately.
+**Key finding:** 52 ClawTower watchdog restarts in 18h suggests the service is crashing/restarting every ~21 minutes. This should be investigated separately.
 
 **Key finding:** 2,608 alerts (Falco + Samhain) are just "waiting for log" — these integrations aren't functional. Disable them or install the tools.
 
@@ -193,7 +193,7 @@ Reading config files is not writing. The rule name says "write" but triggers on 
 1. **P0 — Sentinel skills loop** (2,748 alerts): Allowlist `~/.openclaw/workspace/superpowers/skills/`
 2. **P0 — detect-scheduled-tasks broken regex** (137 alerts): Fix `cat` matching
 3. **P1 — Scan deduplication** (540 Warning alerts): Alert once/day for persistent config issues, not every scan cycle
-4. **P1 — deny-clawav-config-write reads** (10 alerts): Only match writes, not reads
+4. **P1 — deny-clawtower-config-write reads** (10 alerts): Only match writes, not reads
 5. **P2 — Allowlist known hosts** in exfil policy: `wttr.in`, `api.open-meteo.com`, `claw.local`, `localhost`, `gottamolt.gg`, `github.com`
 6. **P2 — Allowlist compiler toolchain** in SEC_TAMPER: `gcc`, `collect2`, `ld`
 7. **P2 — Disable or install Falco/Samhain** (2,608 Info alerts wasted)

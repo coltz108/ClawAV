@@ -1,6 +1,6 @@
 # Source Inventory
 
-> Auto-generated reference of all public items in the ClawAV codebase. Used for documentation cross-referencing.
+> Auto-generated reference of all public items in the ClawTower codebase. Used for documentation cross-referencing.
 >
 > **Last updated:** 2026-02-14
 

@@ -1,6 +1,6 @@
 # Security Scanners Reference Guide
 
-ClawAV's periodic security scanner runs 30+ checks against the host system, producing **Pass**, **Warn**, or **Fail** results that feed into the alert pipeline.
+ClawTower's periodic security scanner runs 30+ checks against the host system, producing **Pass**, **Warn**, or **Fail** results that feed into the alert pipeline.
 
 ## Table of Contents
 
@@ -52,7 +52,7 @@ pub struct ScanResult {
 
 ## Scan Interval
 
-Configured via the `interval_secs` parameter passed to `run_periodic_scans()`. Set in your ClawAV config file (typically `/etc/clawav/config.toml`). The scanner sleeps for `interval_secs` between full scan cycles.
+Configured via the `interval_secs` parameter passed to `run_periodic_scans()`. Set in your ClawTower config file (typically `/etc/clawtower/config.toml`). The scanner sleeps for `interval_secs` between full scan cycles.
 
 Each individual command has a 30-second timeout (`DEFAULT_CMD_TIMEOUT`).
 
@@ -95,7 +95,7 @@ Checks auditd status and immutability flag.
 #### `scan_integrity()`
 **Category:** `integrity`
 
-Verifies SHA-256 checksums of ClawAV binary and config against `/etc/clawav/checksums.sha256`.
+Verifies SHA-256 checksums of ClawTower binary and config against `/etc/clawtower/checksums.sha256`.
 
 | Status | Condition |
 |--------|-----------|
@@ -103,7 +103,7 @@ Verifies SHA-256 checksums of ClawAV binary and config against `/etc/clawav/chec
 | Warn | No checksums file exists (no baseline) |
 | Fail | Hash mismatch or file missing |
 
-**Remediation:** If legitimate update: `clawav --store-checksums`. If unexpected: investigate tampering.
+**Remediation:** If legitimate update: `clawtower --store-checksums`. If unexpected: investigate tampering.
 
 ---
 
@@ -117,7 +117,7 @@ Checks `chattr +i` on critical files: binary, config, admin key hash, service fi
 | Pass | All critical files have immutable flag |
 | Fail | Missing immutable flag or missing files |
 
-**Remediation:** `sudo chattr +i /usr/local/bin/clawav /etc/clawav/config.toml ...`
+**Remediation:** `sudo chattr +i /usr/local/bin/clawtower /etc/clawtower/config.toml ...`
 
 ---
 
@@ -183,7 +183,7 @@ Checks if SSH daemon is running.
 #### `scan_listening_services()`
 **Category:** `listening`
 
-Lists TCP listeners, flags anything not on the expected ports list (default: only 18791 for ClawAV API).
+Lists TCP listeners, flags anything not on the expected ports list (default: only 18791 for ClawTower API).
 
 | Status | Condition |
 |--------|-----------|
@@ -211,7 +211,7 @@ Checks `/etc/login.defs` for PASS_MAX_DAYS (≤90) and PAM for pam_pwquality/pam
 #### `scan_systemd_hardening()`
 **Category:** `systemd_hardening`
 
-Checks ClawAV service file (`/etc/systemd/system/clawav.service`) for 8 security directives: `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `ProtectKernelTunables`, `ProtectControlGroups`, `RestrictRealtime`, `MemoryDenyWriteExecute`.
+Checks ClawTower service file (`/etc/systemd/system/clawtower.service`) for 8 security directives: `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `ProtectKernelTunables`, `ProtectControlGroups`, `RestrictRealtime`, `MemoryDenyWriteExecute`.
 
 | Status | Condition |
 |--------|-----------|
@@ -489,7 +489,7 @@ Checks for suspicious `LD_PRELOAD`, `LD_LIBRARY_PATH` containing /tmp, proxy/tor
 
 #### `scan_cognitive_integrity()` *(in `src/cognitive.rs`)*
 
-Verifies SHA-256 hashes of AI identity files against `/etc/clawav/cognitive-baselines.sha256`. Protected files: `SOUL.md`, `IDENTITY.md`, `TOOLS.md`, `AGENTS.md`, `USER.md`, `HEARTBEAT.md`. Watched (mutable) files: `MEMORY.md`. On first run, creates baselines and shadow copies for watched files.
+Verifies SHA-256 hashes of AI identity files against `/etc/clawtower/cognitive-baselines.sha256`. Protected files: `SOUL.md`, `IDENTITY.md`, `TOOLS.md`, `AGENTS.md`, `USER.md`, `HEARTBEAT.md`. Watched (mutable) files: `MEMORY.md`. On first run, creates baselines and shadow copies for watched files.
 
 | Status | Condition |
 |--------|-----------|
@@ -497,11 +497,11 @@ Verifies SHA-256 hashes of AI identity files against `/etc/clawav/cognitive-base
 | Warn | Watched file (MEMORY.md) changed — auto-rebaselined with diff |
 | Fail | Protected file modified or deleted (tampering) |
 
-Protected file changes produce a `TAMPERING DETECTED` message. Watched file changes are reported with a diff summary (lines added/removed) and automatically rebaselined. Shadow copies in `/etc/clawav/cognitive-shadow/` enable diff generation for watched files.
+Protected file changes produce a `TAMPERING DETECTED` message. Watched file changes are reported with a diff summary (lines added/removed) and automatically rebaselined. Shadow copies in `/etc/clawtower/cognitive-shadow/` enable diff generation for watched files.
 
 **Note:** SecureClaw content scanning is intentionally **not** applied to cognitive files — watched files like MEMORY.md contain too many technical references that trigger false positives. See [SENTINEL.md](SENTINEL.md#relationship-to-cognitive-monitoring) for how the real-time Sentinel layer provides content scanning.
 
-**Remediation:** If a protected file change is legitimate, delete `/etc/clawav/cognitive-baselines.sha256` and restart ClawAV to regenerate baselines.
+**Remediation:** If a protected file change is legitimate, delete `/etc/clawtower/cognitive-baselines.sha256` and restart ClawTower to regenerate baselines.
 
 ---
 
@@ -622,7 +622,7 @@ The SecureClaw engine (`src/secureclaw.rs`) loads regex-based threat patterns fr
 
 1. Edit the appropriate JSON file in your vendor/config directory
 2. Add your regex pattern to the relevant category or create a new one
-3. Restart ClawAV — patterns are loaded at startup
+3. Restart ClawTower — patterns are loaded at startup
 4. Test with: write a unit test calling `engine.check_command("your test input")`
 
 C2 server entries in `supply-chain-ioc.json` are auto-escaped (treated as literal strings, not regex).

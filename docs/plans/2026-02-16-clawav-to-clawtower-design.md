@@ -1,8 +1,8 @@
-# ClawAV → ClawTower Rename Design
+# ClawTower → ClawTower Rename Design
 
 **Date:** 2026-02-16
 **Status:** Approved
-**Problem:** "ClawAV" implies antivirus (signature scanning, malware database) which is misleading. The product is a behavioral security monitor / agent watchdog. "ClawTower" is accurate and honest.
+**Problem:** "ClawTower" implies antivirus (signature scanning, malware database) which is misleading. The product is a behavioral security monitor / agent watchdog. "ClawTower" is accurate and honest.
 
 ## Rename Scope
 
@@ -10,9 +10,9 @@
 
 | Old | New | Context |
 |-----|-----|---------|
-| `ClawAV` | `ClawTower` | Product name in docs, comments |
-| `clawav` | `clawtower` | Binary name, crate name, paths, config |
-| `CLAWAV` | `CLAWTOWER` | Env vars, log prefixes, auditd tags |
+| `ClawTower` | `ClawTower` | Product name in docs, comments |
+| `clawtower` | `clawtower` | Binary name, crate name, paths, config |
+| `CLAWTOWER` | `CLAWTOWER` | Env vars, log prefixes, auditd tags |
 
 ### NOT Renamed
 - `clawsudo` — separate binary, stays as-is
@@ -20,21 +20,21 @@
 - `openclaw` — separate product
 
 ### File Renames
-- `src/bin/clawav-ctl.rs` → `src/bin/clawtower-ctl.rs`
-- `src/bin/clawav-tray.rs` → `src/bin/clawtower-tray.rs`
-- `openclawav.service` → `clawtower.service`
-- `apparmor/etc.clawav.protect` → `apparmor/etc.clawtower.protect`
-- `assets/clawav-tray.desktop` → `assets/clawtower-tray.desktop`
-- `assets/com.clawav.policy` → `assets/com.clawtower.policy`
+- `src/bin/clawtower-ctl.rs` → `src/bin/clawtower-ctl.rs`
+- `src/bin/clawtower-tray.rs` → `src/bin/clawtower-tray.rs`
+- `openclawtower.service` → `clawtower.service`
+- `apparmor/etc.clawtower.protect` → `apparmor/etc.clawtower.protect`
+- `assets/clawtower-tray.desktop` → `assets/clawtower-tray.desktop`
+- `assets/com.clawtower.policy` → `assets/com.clawtower.policy`
 
 ### System Paths
-- `/etc/clawav/` → `/etc/clawtower/`
-- `/var/log/clawav/` → `/var/log/clawtower/`
-- `/var/run/clawav/` → `/var/run/clawtower/`
-- `clawav.service` → `clawtower.service`
+- `/etc/clawtower/` → `/etc/clawtower/`
+- `/var/log/clawtower/` → `/var/log/clawtower/`
+- `/var/run/clawtower/` → `/var/run/clawtower/`
+- `clawtower.service` → `clawtower.service`
 
 ### GitHub
-- `coltz108/ClawAV` → `coltz108/ClawTower`
+- `coltz108/ClawTower` → `coltz108/ClawTower`
 
 ## Execution Order
 
@@ -44,9 +44,9 @@
 4. File renames (6 files)
 5. Update Cargo.toml (crate name, binary names)
 6. Build + test
-7. Single commit: `chore: rename ClawAV → ClawTower`
+7. Single commit: `chore: rename ClawTower → ClawTower`
 8. Tag v0.3.0
-9. Uninstall old ClawAV on Pi (step-by-step checklist)
+9. Uninstall old ClawTower on Pi (step-by-step checklist)
 10. Fresh install as ClawTower
 
 ## Versioning

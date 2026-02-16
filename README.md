@@ -1,12 +1,12 @@
 <div align="center">
 
-# 🛡️ ClawAV
+# 🛡️ ClawTower
 
 **OS-level runtime security for AI agents — any agent, any framework**
 
-[![Build](https://img.shields.io/github/actions/workflow/status/coltz108/ClawAV/ci.yml?branch=main&style=flat-square)](https://github.com/coltz108/ClawAV/actions)
+[![Build](https://img.shields.io/github/actions/workflow/status/coltz108/ClawTower/ci.yml?branch=main&style=flat-square)](https://github.com/coltz108/ClawTower/actions)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/coltz108/ClawAV?style=flat-square)](https://github.com/coltz108/ClawAV/releases)
+[![Release](https://img.shields.io/github/v/release/coltz108/ClawTower?style=flat-square)](https://github.com/coltz108/ClawTower/releases)
 
 </div>
 
@@ -14,9 +14,9 @@
 
 ## Table of Contents
 
-- [What is ClawAV?](#what-is-clawav)
+- [What is ClawTower?](#what-is-clawtower)
 - [Who It's For](#who-its-for)
-- [How ClawAV Fits](#how-clawav-fits)
+- [How ClawTower Fits](#how-clawtower-fits)
 - [Features](#features)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
@@ -25,17 +25,17 @@
 - [Contributing](#contributing)
 - [License](#license)
 
-## What is ClawAV?
+## What is ClawTower?
 
 Autonomous AI agents operate with real system access — executing commands, editing files, and managing infrastructure. But who watches the watcher? Traditional security tools weren't designed for a world where the *user* is an AI that could, intentionally or through prompt injection, disable its own monitoring.
 
-ClawAV solves this with the **"swallowed key" pattern**: the agent (or its operator) installs ClawAV, but once running, the agent *cannot* modify, disable, or uninstall it. The binary is immutable (`chattr +i`), the service is protected by systemd, and the admin key is hashed and stored outside the agent's reach. Every attempt to tamper is logged and alerted on.
+ClawTower solves this with the **"swallowed key" pattern**: the agent (or its operator) installs ClawTower, but once running, the agent *cannot* modify, disable, or uninstall it. The binary is immutable (`chattr +i`), the service is protected by systemd, and the admin key is hashed and stored outside the agent's reach. Every attempt to tamper is logged and alerted on.
 
-Under the hood, ClawAV provides real-time file integrity monitoring via inotify, behavioral analysis of syscalls through auditd, threat pattern detection across file contents, and 30+ periodic security scanners — all feeding into a hash-chained audit trail that's cryptographically tamper-evident. Think of it as an immune system for machines running AI agents.
+Under the hood, ClawTower provides real-time file integrity monitoring via inotify, behavioral analysis of syscalls through auditd, threat pattern detection across file contents, and 30+ periodic security scanners — all feeding into a hash-chained audit trail that's cryptographically tamper-evident. Think of it as an immune system for machines running AI agents.
 
 ## Who It's For
 
-ClawAV is **agent-agnostic**. It works at the OS level — auditd, AppArmor, syscall interception — so it doesn't need hooks into your agent's code. If it runs on Linux, ClawAV can watch it:
+ClawTower is **agent-agnostic**. It works at the OS level — auditd, AppArmor, syscall interception — so it doesn't need hooks into your agent's code. If it runs on Linux, ClawTower can watch it:
 
 - **[OpenClaw](https://openclaw.ai)** agents and ClawHub skills
 - **Claude Code**, **Codex CLI**, **Aider**, **Continue**
@@ -43,9 +43,9 @@ ClawAV is **agent-agnostic**. It works at the OS level — auditd, AppArmor, sys
 - **Custom agents** built on LangChain, CrewAI, AutoGen, or raw API calls
 - Any process running under a monitored user account
 
-No SDK integration required. Install ClawAV, point it at the user your agent runs as, and it starts watching.
+No SDK integration required. Install ClawTower, point it at the user your agent runs as, and it starts watching.
 
-## How ClawAV Fits
+## How ClawTower Fits
 
 AI agent security isn't one layer — it's a stack. Different tools cover different stages:
 
@@ -53,17 +53,17 @@ AI agent security isn't one layer — it's a stack. Different tools cover differ
 |-------|------|------|----------|
 | **Marketplace scanning** | Pre-install | Static analysis of skill/plugin packages | OpenClaw + VirusTotal, npm audit |
 | **Code review** | Pre-execution | LLM-powered behavioral analysis of code | OpenClaw Code Insight, manual review |
-| **Runtime monitoring** | Continuous | Watching what agents *actually do* on the machine | **ClawAV** |
-| **Network policy** | Continuous | Controlling outbound connections | **ClawAV** netpolicy, firewall rules |
+| **Runtime monitoring** | Continuous | Watching what agents *actually do* on the machine | **ClawTower** |
+| **Network policy** | Continuous | Controlling outbound connections | **ClawTower** netpolicy, firewall rules |
 
-**ClawAV operates at the runtime layer** — the part that catches what static scanning can't:
+**ClawTower operates at the runtime layer** — the part that catches what static scanning can't:
 
 - A skill passes VirusTotal but uses prompt injection to exfiltrate data at runtime
 - An agent's behavior changes after a context window is poisoned
 - A legitimate tool (`curl`, `scp`) is used for unauthorized data transfer
 - Someone tampers with the agent's identity or configuration files
 
-Marketplace scanners like VirusTotal are great at catching known malware signatures. ClawAV catches the *unknown* — novel exfiltration, privilege escalation, reverse shells, and tamper attempts — through behavioral analysis and policy enforcement.
+Marketplace scanners like VirusTotal are great at catching known malware signatures. ClawTower catches the *unknown* — novel exfiltration, privilege escalation, reverse shells, and tamper attempts — through behavioral analysis and policy enforcement.
 
 **They're complementary.** Use both. Gate your marketplace; guard your machine.
 
@@ -116,31 +116,31 @@ Monitors audit log files for evidence destruction: missing files, inode replacem
 ### One-line Install
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/coltz108/ClawAV/main/scripts/oneshot-install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/coltz108/ClawTower/main/scripts/oneshot-install.sh | sudo bash
 ```
 
 ### Build from Source
 
 ```bash
-git clone https://github.com/coltz108/ClawAV.git
-cd ClawAV
+git clone https://github.com/coltz108/ClawTower.git
+cd ClawTower
 cargo build --release
 
 # Install binaries
-sudo install -m 755 target/release/clawav /usr/local/bin/clawav
+sudo install -m 755 target/release/clawtower /usr/local/bin/clawtower
 sudo install -m 755 target/release/clawsudo /usr/local/bin/clawsudo
 
 # Make immutable (the "swallowed key")
-sudo chattr +i /usr/local/bin/clawav
+sudo chattr +i /usr/local/bin/clawtower
 ```
 
 ### Initial Setup
 
 ```bash
 # 1. Create config directory and copy config
-sudo mkdir -p /etc/clawav
-sudo cp config.toml /etc/clawav/config.toml
-sudo nano /etc/clawav/config.toml    # Edit watched_users, slack webhook, etc.
+sudo mkdir -p /etc/clawtower
+sudo cp config.toml /etc/clawtower/config.toml
+sudo nano /etc/clawtower/config.toml    # Edit watched_users, slack webhook, etc.
 
 # 2. Run the setup script (installs binary, creates dirs, sets up systemd)
 sudo scripts/setup.sh
@@ -153,7 +153,7 @@ sudo scripts/setup.sh
 
 ```bash
 sudo scripts/setup-auditd.sh        # Syscall monitoring — highly recommended
-sudo scripts/setup-sudoers-deny.sh  # Block agent from stopping ClawAV
+sudo scripts/setup-sudoers-deny.sh  # Block agent from stopping ClawTower
 sudo scripts/setup-slack.sh         # Slack alerts
 ```
 
@@ -193,13 +193,13 @@ sudo scripts/setup-samhain.sh       # Samhain file integrity
 
 ## Configuration
 
-ClawAV uses a TOML config file (default: `/etc/clawav/config.toml`). Key sections:
+ClawTower uses a TOML config file (default: `/etc/clawtower/config.toml`). Key sections:
 
 ```toml
 [general]
 watched_users = ["1000"]        # Numeric UIDs to monitor (not usernames! find with: id -u openclaw)
 min_alert_level = "info"        # info | warning | critical
-log_file = "/var/log/clawav/clawav.log"
+log_file = "/var/log/clawtower/clawtower.log"
 
 [slack]
 webhook_url = "https://hooks.slack.com/services/..."
@@ -215,13 +215,13 @@ log_path = "/var/log/audit/audit.log"
 [network]
 enabled = true
 source = "auto"                 # auto | journald | file
-log_prefix = "CLAWAV_NET"
+log_prefix = "CLAWTOWER_NET"
 allowlisted_cidrs = ["192.168.0.0/16", "10.0.0.0/8"]
 
 [sentinel]
 enabled = true
-quarantine_dir = "/etc/clawav/quarantine"
-shadow_dir = "/etc/clawav/sentinel-shadow"
+quarantine_dir = "/etc/clawtower/quarantine"
+shadow_dir = "/etc/clawtower/sentinel-shadow"
 scan_content = true
 debounce_ms = 200
 
@@ -270,43 +270,43 @@ enabled = true                  # Monitor SSH login events via journald
 
 ```bash
 # Start with Terminal UI (default)
-clawav
+clawtower
 
 # Run headless (servers, background monitoring)
-clawav run --headless
+clawtower run --headless
 
 # One-shot security scan and exit
-clawav scan
+clawtower scan
 
 # Show service status
-clawav status
+clawtower status
 
 # Interactive configuration wizard
-clawav configure
+clawtower configure
 
 # Self-update to latest release
-clawav update
+clawtower update
 
 # Check for updates without installing
-clawav update --check
+clawtower update --check
 
 # Verify audit chain integrity
-clawav verify-audit
+clawtower verify-audit
 
 # Update SecureClaw pattern databases
-clawav sync
+clawtower sync
 
 # Apply tamper-proof hardening
-clawav harden
+clawtower harden
 
 # Tail service logs
-clawav logs
+clawtower logs
 
 # Uninstall (requires admin key)
-clawav uninstall
+clawtower uninstall
 
 # Admin key is auto-generated on first run and printed once — save it!
-# It is stored only as an Argon2 hash at /etc/clawav/admin.key.hash
+# It is stored only as an Argon2 hash at /etc/clawtower/admin.key.hash
 
 # Use clawsudo instead of sudo for AI agents
 clawsudo apt-get update
@@ -316,7 +316,7 @@ clawsudo apt-get update
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                        ClawAV Core                           │
+│                        ClawTower Core                           │
 │                                                              │
 │  ┌───────────────────┐  ┌──────────┐  ┌──────────┐          │
 │  │  Auditd Watcher   │  │ Sentinel │  │ Journald │ Sources  │

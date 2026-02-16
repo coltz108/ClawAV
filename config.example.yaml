@@ -1,6 +1,6 @@
-# ClawAV Example Sentinel Configuration (YAML reference only)
+# ClawTower Example Sentinel Configuration (YAML reference only)
 #
-# ⚠️  NOTE: ClawAV uses TOML for its config file (/etc/clawav/config.toml), NOT YAML.
+# ⚠️  NOTE: ClawTower uses TOML for its config file (/etc/clawtower/config.toml), NOT YAML.
 # This file is a reference showing sentinel watch_paths structure.
 # Convert to TOML format before using. See config.toml for the actual config.
 
@@ -19,8 +19,8 @@ sentinel:
     - path: "/home/openclaw"
       patterns: [".bashrc", ".profile", ".ssh/authorized_keys"]
       policy: protected
-  quarantine_dir: "/etc/clawav/quarantine"
-  shadow_dir: "/etc/clawav/sentinel-shadow"
+  quarantine_dir: "/etc/clawtower/quarantine"
+  shadow_dir: "/etc/clawtower/sentinel-shadow"
   debounce_ms: 200
   scan_content: true
   max_file_size_kb: 1024
@@ -34,7 +34,7 @@ openclaw:
   # audit_command: "openclaw security audit --deep"
   audit_on_scan: true           # Run openclaw security audit during periodic scans
   config_drift_check: true      # Detect security regressions in OpenClaw config
-  # baseline_path: "/etc/clawav/openclaw-config-baseline.json"
+  # baseline_path: "/etc/clawtower/openclaw-config-baseline.json"
   mdns_check: true              # Check for mDNS info leaks
   plugin_watch: true            # Monitor OpenClaw extensions directory
   session_log_audit: true       # Auditd rules for session log access

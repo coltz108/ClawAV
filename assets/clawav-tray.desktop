@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=ClawAV Tray
-Comment=ClawAV security monitor tray icon
-Exec=/usr/local/bin/clawav-tray
-Icon=clawav
+Name=ClawTower Tray
+Comment=ClawTower security monitor tray icon
+Exec=/usr/local/bin/clawtower-tray
+Icon=clawtower
 Terminal=false
 Categories=System;Security;
 StartupNotify=false

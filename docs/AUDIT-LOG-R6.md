@@ -82,7 +82,7 @@ Methodology: extracted every `pub` item from all `src/*.rs` files, cross-referen
 
 ## File: docs/MONITORING-SOURCES.md
 
-- [FIXED] Network monitoring prefix example was `"[CLAWAV-NET]"` (with brackets) — actual config default is `"CLAWAV_NET"` (no brackets). Corrected to match.
+- [FIXED] Network monitoring prefix example was `"[CLAWTOWER-NET]"` (with brackets) — actual config default is `"CLAWTOWER_NET"` (no brackets). Corrected to match.
 - [VERIFIED] Auditd record types (SYSCALL, EXECVE, AVC) and parsing details match code.
 - [VERIFIED] Actor enum: Agent (auid=4294967295), Human, Unknown — matches code.
 - [VERIFIED] Falco priority mapping matches `parse_falco_line()`.
@@ -96,7 +96,7 @@ Methodology: extracted every `pub` item from all `src/*.rs` files, cross-referen
 - [FIXED] YAML schema `exclude_args` and `file_access` fields were not marked as detection-engine-only. clawsudo's independent policy loader (`src/bin/clawsudo.rs`) only supports `command` and `command_contains`. Added clarifying notes.
 - [VERIFIED] Policy evaluation order: detection = highest severity wins, clawsudo = first match wins — matches code.
 - [VERIFIED] Fail-secure behavior (no rules = deny all) in clawsudo — confirmed in code.
-- [VERIFIED] Policy file locations match code (both `./policies/` and `/etc/clawav/policies/`).
+- [VERIFIED] Policy file locations match code (both `./policies/` and `/etc/clawtower/policies/`).
 
 ## File: docs/CLAWSUDO-AND-POLICY.md
 
@@ -119,7 +119,7 @@ Methodology: extracted every `pub` item from all `src/*.rs` files, cross-referen
 
 - [VERIFIED] All scripts referenced exist in `scripts/`.
 - [VERIFIED] CLI commands table matches `main.rs` dispatch.
-- [VERIFIED] Admin key storage path `/etc/clawav/admin.key.hash` matches code.
+- [VERIFIED] Admin key storage path `/etc/clawtower/admin.key.hash` matches code.
 
 ## Cargo.toml Dependencies
 

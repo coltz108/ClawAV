@@ -1,4 +1,4 @@
-# ClawAV × OpenClaw Security Integration — Design Document
+# ClawTower × OpenClaw Security Integration — Design Document
 
 > **Date:** 2026-02-15
 > **Author:** Claw 🦞
@@ -7,11 +7,11 @@
 
 ## Problem
 
-OpenClaw documents comprehensive security best practices — credential protection, config hardening, access control policies, plugin integrity, mDNS info leakage, session log protection. ClawAV already monitors the host OS but only scratches the surface of OpenClaw-specific security. The existing `scan_openclaw_security()` checks 4 things (gateway bind, auth, filesystem scope, tunnel). There's a whole attack surface being ignored.
+OpenClaw documents comprehensive security best practices — credential protection, config hardening, access control policies, plugin integrity, mDNS info leakage, session log protection. ClawTower already monitors the host OS but only scratches the surface of OpenClaw-specific security. The existing `scan_openclaw_security()` checks 4 things (gateway bind, auth, filesystem scope, tunnel). There's a whole attack surface being ignored.
 
 ## Goal
 
-Make ClawAV the automated enforcement layer for everything in the OpenClaw security docs. If `openclaw security audit` can find it, ClawAV should find it faster, alert on it, and track drift over time.
+Make ClawTower the automated enforcement layer for everything in the OpenClaw security docs. If `openclaw security audit` can find it, ClawTower should find it faster, alert on it, and track drift over time.
 
 ## Architecture
 
@@ -41,7 +41,7 @@ Three layers, each building on the last:
 
 Add a new scan category `openclaw:audit` that shells out to `openclaw security audit --deep --json` (if JSON output exists) or parses the text output. Run on the same interval as other periodic scans. Each finding maps to a `ScanResult` with appropriate severity.
 
-Why not just run the CLI on cron? Because ClawAV aggregates all security findings into one alert stream with Slack notifications, TUI display, and audit chain. Running it inside ClawAV means findings are unified.
+Why not just run the CLI on cron? Because ClawTower aggregates all security findings into one alert stream with Slack notifications, TUI display, and audit chain. Running it inside ClawTower means findings are unified.
 
 **1b. OpenClaw credential file monitoring**
 
@@ -85,7 +85,7 @@ Parse `~/.openclaw/openclaw.json` and track security-critical fields. On each sc
 | `controlUi.dangerouslyDisableDeviceAuth` | `false` | Changed to `true` |
 | `controlUi.allowInsecureAuth` | `false` | Changed to `true` |
 
-Baseline stored at `/etc/clawav/openclaw-config-baseline.json`. On first run, current config becomes baseline (no alert). Subsequent changes trigger alerts with a diff.
+Baseline stored at `/etc/clawtower/openclaw-config-baseline.json`. On first run, current config becomes baseline (no alert). Subsequent changes trigger alerts with a diff.
 
 ### Phase 3: Advanced Monitoring
 
@@ -115,9 +115,9 @@ Scanner check: if gateway has `controlUi` enabled, verify it's only accessible v
 ## What We're NOT Doing
 
 - **Not replacing `openclaw security audit`** — we're wrapping it as a data source. Users can still run it manually.
-- **Not auto-fixing** — ClawAV alerts, it doesn't modify OpenClaw config. The `--fix` flag is the user's choice.
+- **Not auto-fixing** — ClawTower alerts, it doesn't modify OpenClaw config. The `--fix` flag is the user's choice.
 - **Not monitoring model choice** — that's taste, not security.
-- **Not blocking OpenClaw** — ClawAV is a watchdog, not a gatekeeper for the agent runtime.
+- **Not blocking OpenClaw** — ClawTower is a watchdog, not a gatekeeper for the agent runtime.
 
 ## Config Changes
 
@@ -131,7 +131,7 @@ state_dir = "/home/openclaw/.openclaw"
 audit_command = "openclaw security audit --deep"
 audit_on_scan = true           # run audit CLI during periodic scans
 config_drift_check = true      # phase 2: config drift detection
-baseline_path = "/etc/clawav/openclaw-config-baseline.json"
+baseline_path = "/etc/clawtower/openclaw-config-baseline.json"
 mdns_check = true              # phase 3: mDNS info leak
 plugin_watch = true            # phase 3: extension integrity
 session_log_audit = true       # phase 3: auditd on session logs
