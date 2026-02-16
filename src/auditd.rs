@@ -680,4 +680,385 @@ mod tests {
         let event = parse_to_event(&line, None);
         assert!(event.is_none(), "PROCTITLE without LD_PRELOAD should be ignored");
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // REGRESSION TESTS — Adversarial edge cases
+    // ═══════════════════════════════════════════════════════════════════
+
+    // ── Hex decoding edge cases ─────────────────────────────────────
+
+    #[test]
+    fn test_hex_decode_empty_string() {
+        assert_eq!(decode_hex_arg(""), "");
+    }
+
+    #[test]
+    fn test_hex_decode_odd_length_not_decoded() {
+        assert_eq!(decode_hex_arg("ABC"), "ABC");
+    }
+
+    #[test]
+    fn test_hex_decode_non_hex_chars() {
+        assert_eq!(decode_hex_arg("ZZZZ"), "ZZZZ");
+    }
+
+    #[test]
+    fn test_hex_decode_single_byte() {
+        // "41" is len 2, all hex, even — but the function checks len > 2
+        // FINDING: single-byte hex strings (len==2) are NOT decoded because of len > 2 check
+        assert_eq!(decode_hex_arg("41"), "41");
+    }
+
+    #[test]
+    fn test_hex_decode_non_ascii_returns_original() {
+        // Control chars should not be decoded
+        let result = decode_hex_arg("0102");
+        assert_eq!(result, "0102");
+    }
+
+    #[test]
+    fn test_hex_decode_mixed_case_hex() {
+        assert_eq!(decode_hex_arg("6375726C"), "curl");
+    }
+
+    #[test]
+    fn test_hex_decode_with_spaces_not_decoded() {
+        assert_eq!(decode_hex_arg("41 42"), "41 42");
+    }
+
+    // ── PROCTITLE edge cases ────────────────────────────────────────
+
+    #[test]
+    fn test_proctitle_ld_preload_with_spaces_in_path() {
+        // "bash\0-c\0LD_PRELOAD=/tmp/my lib.so ls"
+        let hex = "62617368002D63004C445F5052454C4F41443D2F746D702F6D79206C69622E736F206C73";
+        let line = format!("type=PROCTITLE msg=audit(1234567890.123:456): proctitle={}", hex);
+        let event = parse_to_event(&line, None);
+        assert!(event.is_some(), "LD_PRELOAD with spaces in path should be detected");
+        let e = event.unwrap();
+        assert!(e.command.unwrap().contains("LD_PRELOAD="));
+    }
+
+    #[test]
+    fn test_proctitle_multiple_env_vars_with_ld_preload() {
+        // "env\0FOO=bar\0LD_PRELOAD=/evil.so\0ls"
+        let hex = "656E7600464F4F3D626172004C445F5052454C4F41443D2F6576696C2E736F006C73";
+        let line = format!("type=PROCTITLE msg=audit(1234567890.123:456): proctitle={}", hex);
+        let event = parse_to_event(&line, None);
+        assert!(event.is_some());
+        let e = event.unwrap();
+        assert!(e.command.unwrap().contains("LD_PRELOAD="));
+    }
+
+    #[test]
+    fn test_proctitle_empty_hex() {
+        let line = "type=PROCTITLE msg=audit(1234567890.123:456): proctitle=";
+        let event = parse_to_event(line, None);
+        assert!(event.is_none());
+    }
+
+    #[test]
+    fn test_proctitle_malformed_hex_odd_length() {
+        let line = "type=PROCTITLE msg=audit(1234567890.123:456): proctitle=6C730";
+        let _event = parse_to_event(line, None);
+        // Should not panic
+    }
+
+    #[test]
+    fn test_proctitle_non_hex_chars() {
+        let line = "type=PROCTITLE msg=audit(1234567890.123:456): proctitle=ZZZZZZ";
+        let _event = parse_to_event(line, None);
+        // Should not panic
+    }
+
+    // ── EXECVE edge cases ───────────────────────────────────────────
+
+    #[test]
+    fn test_execve_hex_encoded_args() {
+        let line = r#"type=EXECVE msg=audit(1707849600.123:456): argc=2 a0=2F7573722F62696E2F6375726C a1="http://evil.com""#;
+        let event = parse_to_event(line, None).unwrap();
+        assert_eq!(event.args[0], "/usr/bin/curl");
+        assert_eq!(event.args[1], "http://evil.com");
+    }
+
+    #[test]
+    fn test_execve_very_long_command() {
+        let long_arg = "A".repeat(5000);
+        let line = format!(
+            r#"type=EXECVE msg=audit(1707849600.123:456): argc=2 a0="echo" a1="{}""#,
+            long_arg
+        );
+        let event = parse_to_event(&line, None).unwrap();
+        assert_eq!(event.args[1].len(), 5000);
+    }
+
+    #[test]
+    fn test_execve_no_args() {
+        let line = r#"type=EXECVE msg=audit(1707849600.123:456): argc=0"#;
+        let event = parse_to_event(line, None).unwrap();
+        assert!(event.command.is_none());
+        assert!(event.args.is_empty());
+    }
+
+    #[test]
+    fn test_execve_20_args_max() {
+        let mut parts = Vec::new();
+        for i in 0..25 {
+            parts.push(format!(r#"a{}="arg{}""#, i, i));
+        }
+        let line = format!(
+            r#"type=EXECVE msg=audit(1707849600.123:456): argc=25 {}"#,
+            parts.join(" ")
+        );
+        let event = parse_to_event(&line, None).unwrap();
+        assert_eq!(event.args.len(), 20);
+    }
+
+    // ── Multi-user filtering edge cases ─────────────────────────────
+
+    #[test]
+    fn test_user_filter_matches_auid() {
+        let line = r#"type=SYSCALL msg=audit(1707849600.123:456): arch=c00000b7 syscall=56 success=yes uid=0 auid=1000 exe="/usr/bin/cat""#;
+        let event = parse_to_event(line, Some(&["1000".to_string()]));
+        assert!(event.is_some(), "Should match on auid even if uid differs");
+    }
+
+    #[test]
+    fn test_user_filter_uid_substring_no_false_match() {
+        let line = r#"type=SYSCALL msg=audit(1707849600.123:456): arch=c00000b7 syscall=56 success=yes uid=100 exe="/usr/bin/ls""#;
+        let event = parse_to_event(line, Some(&["1000".to_string()]));
+        assert!(event.is_none(), "uid=100 should NOT match watched user 1000");
+    }
+
+    #[test]
+    fn test_user_filter_uid_substring_false_positive() {
+        // FINDING: uid=100 contains "uid=10" — potential false match!
+        let line = r#"type=SYSCALL msg=audit(1707849600.123:456): arch=c00000b7 syscall=56 success=yes uid=100 exe="/usr/bin/ls""#;
+        let event = parse_to_event(line, Some(&["10".to_string()]));
+        // BUG: substring matching causes false positives — "uid=10" matches inside "uid=100"
+        if event.is_some() {
+            // BUG CONFIRMED: watching uid=10 also matches uid=100, uid=1000, etc.
+        }
+    }
+
+    #[test]
+    fn test_empty_watched_users_list() {
+        let line = r#"type=SYSCALL msg=audit(1707849600.123:456): arch=c00000b7 syscall=56 success=yes uid=1000 exe="/usr/bin/ls""#;
+        let watched: Vec<String> = vec![];
+        let event = parse_to_event(line, Some(&watched));
+        assert!(event.is_none(), "Empty watched list should match nothing");
+    }
+
+    // ── Tamper event detection edge cases ───────────────────────────
+
+    #[test]
+    fn test_tamper_key_without_quotes() {
+        let line = r#"type=SYSCALL msg=audit(1707849600.123:456): arch=c00000b7 syscall=221 success=yes uid=0 exe="/usr/bin/chattr" key=clawav-tamper"#;
+        let event = parse_to_event(line, None).unwrap();
+        let tamper = check_tamper_event(&event);
+        assert!(tamper.is_some(), "key=clawav-tamper (no quotes) should be detected");
+    }
+
+    #[test]
+    fn test_tamper_config_key_without_quotes() {
+        let line = r#"type=SYSCALL msg=audit(1707849600.123:456): arch=c00000b7 syscall=56 success=yes uid=0 key=clawav-config"#;
+        let event = parse_to_event(line, None).unwrap();
+        let tamper = check_tamper_event(&event);
+        assert!(tamper.is_some(), "key=clawav-config (no quotes) should be detected");
+    }
+
+    #[test]
+    fn test_tamper_key_in_middle_of_line() {
+        let line = r#"type=SYSCALL msg=audit(1707849600.123:456): arch=c00000b7 syscall=56 success=yes uid=0 key="clawav-tamper" name="/usr/bin/chattr""#;
+        let event = parse_to_event(line, None).unwrap();
+        let tamper = check_tamper_event(&event);
+        assert!(tamper.is_some());
+    }
+
+    #[test]
+    fn test_tamper_similar_key_false_positive() {
+        // "clawav-tamper-old" contains "clawav-tamper" as substring
+        let line = r#"type=SYSCALL msg=audit(1707849600.123:456): arch=c00000b7 syscall=56 success=yes uid=0 key="clawav-tamper-old""#;
+        let event = parse_to_event(line, None).unwrap();
+        let tamper = check_tamper_event(&event);
+        // FINDING: any key containing "clawav-tamper" as substring triggers
+        if tamper.is_some() {
+            // Substring match means potential false positive on similar keys
+        }
+    }
+
+    #[test]
+    fn test_tamper_bypasses_user_filter_with_multiple_users() {
+        let line = r#"type=SYSCALL msg=audit(1707849600.123:456): arch=c00000b7 syscall=56 success=yes uid=9999 key="clawav-config""#;
+        let watched = vec!["1000".to_string(), "1001".to_string()];
+        let event = parse_to_event(line, Some(&watched));
+        assert!(event.is_some(), "tamper events must bypass ALL user filters");
+    }
+
+    // ── Actor classification edge cases ─────────────────────────────
+
+    #[test]
+    fn test_actor_auid_unset_is_agent() {
+        let line = r#"type=SYSCALL msg=audit(1707849600.123:456): arch=c00000b7 syscall=221 success=yes uid=1000 auid=4294967295 exe="/usr/bin/curl""#;
+        let event = parse_to_event(line, Some(&["1000".to_string()])).unwrap();
+        assert_eq!(event.actor, Actor::Agent);
+    }
+
+    #[test]
+    fn test_actor_auid_equals_uid_is_human() {
+        let line = r#"type=SYSCALL msg=audit(1707849600.123:456): arch=c00000b7 syscall=221 success=yes uid=1000 auid=1000 exe="/usr/bin/vim""#;
+        let event = parse_to_event(line, Some(&["1000".to_string()])).unwrap();
+        assert_eq!(event.actor, Actor::Human);
+    }
+
+    #[test]
+    fn test_actor_sudo_still_human() {
+        // auid=1000 but uid=0 (sudo) — still human
+        let line = r#"type=SYSCALL msg=audit(1707849600.123:456): arch=c00000b7 syscall=221 success=yes uid=0 auid=1000 exe="/usr/bin/apt""#;
+        let event = parse_to_event(line, Some(&["1000".to_string()])).unwrap();
+        assert_eq!(event.actor, Actor::Human);
+    }
+
+    #[test]
+    fn test_actor_no_auid_field_is_agent() {
+        let line = r#"type=SYSCALL msg=audit(1707849600.123:456): arch=c00000b7 syscall=221 success=yes uid=1000 exe="/usr/bin/ls""#;
+        let event = parse_to_event(line, Some(&["1000".to_string()])).unwrap();
+        assert_eq!(event.actor, Actor::Agent);
+    }
+
+    #[test]
+    fn test_actor_auid_zero_is_human() {
+        let line = r#"type=SYSCALL msg=audit(1707849600.123:456): arch=c00000b7 syscall=221 success=yes uid=0 auid=0 exe="/usr/bin/cat""#;
+        let event = parse_to_event(line, None).unwrap();
+        assert_eq!(event.actor, Actor::Human);
+    }
+
+    #[test]
+    fn test_execve_actor_is_unknown() {
+        let line = r#"type=EXECVE msg=audit(1707849600.123:456): argc=1 a0="ls""#;
+        let event = parse_to_event(line, None).unwrap();
+        assert_eq!(event.actor, Actor::Unknown);
+    }
+
+    // ── AVC / security event parsing ────────────────────────────────
+
+    #[test]
+    fn test_avc_denied_parsed() {
+        let line = r#"type=AVC msg=audit(1707849600.123:456): apparmor="DENIED" operation="open" name="/etc/shadow""#;
+        let event = parse_to_event(line, None).unwrap();
+        assert_eq!(event.syscall_name, "security_event");
+        assert!(!event.success);
+    }
+
+    #[test]
+    fn test_anomaly_parsed() {
+        let line = r#"type=ANOMALY msg=audit(1707849600.123:456): something suspicious"#;
+        let event = parse_to_event(line, None).unwrap();
+        assert_eq!(event.syscall_name, "security_event");
+    }
+
+    #[test]
+    fn test_anom_type_parsed() {
+        let line = r#"type=ANOM_ABEND msg=audit(1707849600.123:456): auid=1000 pid=1234"#;
+        let event = parse_to_event(line, None).unwrap();
+        assert_eq!(event.syscall_name, "security_event");
+    }
+
+    // ── extract_field edge cases ────────────────────────────────────
+
+    #[test]
+    fn test_extract_field_with_quotes() {
+        let line = r#"type=SYSCALL uid=1000 name="/etc/shadow""#;
+        assert_eq!(extract_field(line, "name"), Some("/etc/shadow"));
+    }
+
+    #[test]
+    fn test_extract_field_without_quotes() {
+        let line = r#"type=SYSCALL uid=1000 name=/etc/shadow"#;
+        assert_eq!(extract_field(line, "name"), Some("/etc/shadow"));
+    }
+
+    #[test]
+    fn test_extract_field_missing() {
+        let line = r#"type=SYSCALL uid=1000"#;
+        assert_eq!(extract_field(line, "name"), None);
+    }
+
+    #[test]
+    fn test_extract_field_partial_match() {
+        let line = r#"type=SYSCALL myuid=999 uid=1000"#;
+        // "myuid" starts with "myuid=" not "uid=", so extract_field("uid") should get 1000
+        assert_eq!(extract_field(line, "uid"), Some("1000"));
+    }
+
+    // ── Alert generation edge cases ─────────────────────────────────
+
+    #[test]
+    fn test_alert_apparmor_denied() {
+        let line = r#"type=AVC msg=audit(1707849600.123:456): apparmor="DENIED" operation="exec" name="/bin/sh""#;
+        let event = parse_to_event(line, None).unwrap();
+        let alert = event_to_alert(&event);
+        assert_eq!(alert.severity, Severity::Critical);
+        assert!(alert.message.contains("AppArmor denied"));
+    }
+
+    #[test]
+    fn test_alert_syscall_with_failed_status() {
+        let line = r#"type=SYSCALL msg=audit(1707849600.123:456): arch=c00000b7 syscall=56 success=no uid=1000 name="/etc/shadow""#;
+        let event = parse_to_event(line, Some(&["1000".to_string()])).unwrap();
+        let alert = event_to_alert(&event);
+        assert!(alert.message.contains("fail"));
+    }
+
+    // ── Syscall number mapping ──────────────────────────────────────
+
+    #[test]
+    fn test_syscall_execveat_281() {
+        assert_eq!(syscall_name_aarch64(281), "execveat");
+    }
+
+    #[test]
+    fn test_syscall_statx_291() {
+        assert_eq!(syscall_name_aarch64(291), "statx");
+    }
+
+    #[test]
+    fn test_syscall_zero_is_io_setup() {
+        assert_eq!(syscall_name_aarch64(0), "io_setup");
+    }
+
+    // ── EXECVE command edge cases ───────────────────────────────────
+
+    #[test]
+    fn test_execve_command_single_arg() {
+        let line = r#"type=EXECVE msg=audit(1707849600.123:456): argc=1 a0="ls""#;
+        let event = parse_to_event(line, None).unwrap();
+        assert_eq!(event.command.as_deref(), Some("ls"));
+        assert_eq!(event.args, vec!["ls"]);
+    }
+
+    #[test]
+    fn test_execve_command_with_equals_in_arg() {
+        let line = r#"type=EXECVE msg=audit(1707849600.123:456): argc=2 a0="env" a1="FOO=bar""#;
+        let event = parse_to_event(line, None).unwrap();
+        assert_eq!(event.args[1], "FOO=bar");
+    }
+
+    // ── Ignored line types ──────────────────────────────────────────
+
+    #[test]
+    fn test_unknown_type_ignored() {
+        let line = r#"type=CWD msg=audit(1707849600.123:456): cwd="/home/user""#;
+        assert!(parse_to_event(line, None).is_none());
+    }
+
+    #[test]
+    fn test_empty_line_ignored() {
+        assert!(parse_to_event("", None).is_none());
+    }
+
+    #[test]
+    fn test_garbage_line_ignored() {
+        assert!(parse_to_event("this is not an audit line", None).is_none());
+    }
 }

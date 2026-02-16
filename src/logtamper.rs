@@ -197,6 +197,98 @@ mod tests {
         assert_eq!(result.status, crate::scanner::ScanStatus::Fail);
     }
 
+    // --- NEW REGRESSION TESTS ---
+
+    #[test]
+    fn test_normal_growth_no_alert() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.log");
+        std::fs::write(&path, "initial content").unwrap();
+
+        let mut last_size = None;
+        let mut last_inode = None;
+
+        // First check: baseline
+        let alert = check_log_file(&path, &mut last_size, &mut last_inode);
+        assert!(alert.is_none());
+
+        // Grow the file
+        std::fs::write(&path, "initial content\nmore data here\neven more").unwrap();
+
+        let alert = check_log_file(&path, &mut last_size, &mut last_inode);
+        assert!(alert.is_none(), "Growing file should not alert");
+    }
+
+    #[test]
+    fn test_size_decrease_with_real_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.log");
+        std::fs::write(&path, "lots of audit data here that is quite long").unwrap();
+
+        let mut last_size = None;
+        let mut last_inode = None;
+
+        // Baseline
+        check_log_file(&path, &mut last_size, &mut last_inode);
+
+        // Truncate
+        std::fs::write(&path, "short").unwrap();
+
+        let alert = check_log_file(&path, &mut last_size, &mut last_inode);
+        assert!(alert.is_some());
+        let alert = alert.unwrap();
+        assert_eq!(alert.severity, Severity::Critical);
+        assert!(alert.message.contains("TRUNCATED"));
+    }
+
+    #[test]
+    fn test_same_size_no_alert() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.log");
+        std::fs::write(&path, "exact").unwrap();
+
+        let mut last_size = None;
+        let mut last_inode = None;
+
+        check_log_file(&path, &mut last_size, &mut last_inode);
+        // Same content = same size
+        let alert = check_log_file(&path, &mut last_size, &mut last_inode);
+        assert!(alert.is_none(), "Same size should not alert");
+    }
+
+    #[test]
+    fn test_file_deleted_after_baseline() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.log");
+        std::fs::write(&path, "content").unwrap();
+
+        let mut last_size = None;
+        let mut last_inode = None;
+
+        check_log_file(&path, &mut last_size, &mut last_inode);
+        std::fs::remove_file(&path).unwrap();
+
+        let alert = check_log_file(&path, &mut last_size, &mut last_inode);
+        assert!(alert.is_some());
+        assert_eq!(alert.unwrap().severity, Severity::Critical);
+    }
+
+    #[test]
+    fn test_scan_audit_log_empty_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.log");
+        std::fs::write(&path, "").unwrap();
+        // Set mode 600 so it doesn't hit world-readable check first
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        let result = scan_audit_log_health(&path);
+        assert_eq!(result.status, crate::scanner::ScanStatus::Warn);
+        assert!(result.details.contains("empty"));
+    }
+
     #[test]
     fn test_scan_audit_log_exists() {
         // /etc/passwd exists on all Linux systems

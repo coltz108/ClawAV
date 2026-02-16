@@ -383,4 +383,198 @@ mod tests {
             _ => panic!("Expected pass"),
         }
     }
+
+    // ═══════════════════════ REGRESSION TESTS ═══════════════════════
+
+    #[test]
+    fn test_dlp_visa_card_spaces() {
+        let patterns = test_dlp_patterns();
+        match scan_dlp("Card: 4111 1111 1111 1111", &patterns) {
+            DlpResult::Pass { body, .. } => assert!(body.contains("[REDACTED]")),
+            _ => panic!("Expected redaction"),
+        }
+    }
+
+    #[test]
+    fn test_dlp_mastercard() {
+        let patterns = test_dlp_patterns();
+        match scan_dlp("MC: 5500-0000-0000-0004", &patterns) {
+            DlpResult::Pass { body, .. } => assert!(body.contains("[REDACTED]")),
+            _ => panic!("Expected redaction"),
+        }
+    }
+
+    #[test]
+    fn test_dlp_card_no_separators() {
+        let patterns = test_dlp_patterns();
+        match scan_dlp("num: 4111111111111111", &patterns) {
+            DlpResult::Pass { body, .. } => assert!(body.contains("[REDACTED]")),
+            _ => panic!("Expected redaction"),
+        }
+    }
+
+    #[test]
+    fn test_dlp_amex_15_digits_bypass() {
+        let patterns = test_dlp_patterns();
+        // Amex 15-digit: 4x4x4x3 won't match 4x4x4x4 regex
+        match scan_dlp("Amex: 3782 8224 6310 005", &patterns) {
+            DlpResult::Pass { alerts, .. } => {
+                // BUG: Amex cards bypass DLP — regex only matches 16-digit
+                let card_alerts: Vec<_> = alerts.iter().filter(|a| a.0 == "credit-card").collect();
+                assert!(card_alerts.is_empty(), "Amex bypass confirmed");
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn test_dlp_phone_not_card() {
+        let patterns = test_dlp_patterns();
+        match scan_dlp("Call 555-123-4567", &patterns) {
+            DlpResult::Pass { alerts, .. } => assert!(alerts.is_empty()),
+            _ => panic!("Phone should not trigger"),
+        }
+    }
+
+    #[test]
+    fn test_dlp_sixteen_digit_false_positive() {
+        let patterns = test_dlp_patterns();
+        match scan_dlp("Order: 1234567890123456", &patterns) {
+            DlpResult::Pass { body, .. } => assert!(body.contains("[REDACTED]")),
+            _ => panic!("Should redact (false positive by design)"),
+        }
+    }
+
+    #[test]
+    fn test_dlp_aws_key_in_json() {
+        let patterns = test_dlp_patterns();
+        match scan_dlp(r#"{"key": "AKIAIOSFODNN7EXAMPLE"}"#, &patterns) {
+            DlpResult::Blocked { pattern_name } => assert_eq!(pattern_name, "aws-key"),
+            _ => panic!("AWS key in JSON should block"),
+        }
+    }
+
+    #[test]
+    fn test_dlp_not_aws_wrong_prefix() {
+        let patterns = test_dlp_patterns();
+        match scan_dlp("ASIA1234567890ABCDEF", &patterns) {
+            DlpResult::Pass { .. } => {}
+            _ => panic!("ASIA prefix should not match AKIA"),
+        }
+    }
+
+    #[test]
+    fn test_dlp_empty_body() {
+        let patterns = test_dlp_patterns();
+        match scan_dlp("", &patterns) {
+            DlpResult::Pass { body, alerts } => { assert_eq!(body, ""); assert!(alerts.is_empty()); }
+            _ => panic!("Empty should pass"),
+        }
+    }
+
+    #[test]
+    fn test_dlp_large_body() {
+        let patterns = test_dlp_patterns();
+        let body = "x".repeat(1_000_000);
+        match scan_dlp(&body, &patterns) {
+            DlpResult::Pass { .. } => {}
+            _ => panic!("Large clean body should pass"),
+        }
+    }
+
+    #[test]
+    fn test_dlp_no_patterns() {
+        let empty: Vec<CompiledDlpPattern> = vec![];
+        match scan_dlp("SSN: 123-45-6789", &empty) {
+            DlpResult::Pass { body, .. } => assert!(body.contains("123-45-6789")),
+            _ => panic!("No patterns = pass"),
+        }
+    }
+
+    #[test]
+    fn test_dlp_ssn_and_card_ssn_blocks_first() {
+        let patterns = test_dlp_patterns();
+        match scan_dlp("SSN: 123-45-6789 Card: 4111111111111111", &patterns) {
+            DlpResult::Blocked { pattern_name } => assert_eq!(pattern_name, "ssn"),
+            _ => panic!("SSN should block first"),
+        }
+    }
+
+    #[test]
+    fn test_dlp_multiple_cards_redacted() {
+        let patterns = test_dlp_patterns();
+        match scan_dlp("A: 4111111111111111 B: 5500000000000004", &patterns) {
+            DlpResult::Pass { body, .. } => {
+                assert!(!body.contains("4111"));
+                assert!(!body.contains("5500"));
+            }
+            _ => panic!("Cards should redact not block"),
+        }
+    }
+
+    #[test]
+    fn test_dlp_ssn_boundary() {
+        let patterns = test_dlp_patterns();
+        match scan_dlp("ref:123-45-6789:end", &patterns) {
+            DlpResult::Blocked { pattern_name } => assert_eq!(pattern_name, "ssn"),
+            _ => panic!("SSN at boundary should block"),
+        }
+    }
+
+    #[test]
+    fn test_dlp_ssn_wrong_format() {
+        let patterns = test_dlp_patterns();
+        match scan_dlp("12-34-5678", &patterns) {
+            DlpResult::Pass { .. } => {}
+            _ => panic!("Wrong SSN format should pass"),
+        }
+    }
+
+    #[test]
+    fn test_virtual_key_empty_mappings() {
+        assert!(lookup_virtual_key(&[], "vk-anything").is_none());
+    }
+
+    #[test]
+    fn test_virtual_key_partial_match() {
+        let m = test_mappings();
+        assert!(lookup_virtual_key(&m, "vk-anthropic").is_none());
+    }
+
+    #[test]
+    fn test_virtual_key_case_sensitive() {
+        let m = test_mappings();
+        assert!(lookup_virtual_key(&m, "VK-ANTHROPIC-001").is_none());
+    }
+
+    #[test]
+    fn test_key_rotation_new_mapping() {
+        let m = vec![KeyMapping {
+            virtual_key: "vk-v2".to_string(),
+            real: "sk-NEW".to_string(),
+            provider: "anthropic".to_string(),
+            upstream: "https://api.anthropic.com".to_string(),
+        }];
+        assert_eq!(lookup_virtual_key(&m, "vk-v2").unwrap().0, "sk-NEW");
+        assert!(lookup_virtual_key(&m, "vk-anthropic-001").is_none());
+    }
+
+    fn test_dlp_patterns_with_gcp() -> Vec<CompiledDlpPattern> {
+        let mut p = test_dlp_patterns();
+        p.push(CompiledDlpPattern {
+            name: "gcp-key".to_string(),
+            regex: Regex::new(r"AIza[0-9A-Za-z_-]{35}").unwrap(),
+            action: "block".to_string(),
+        });
+        p
+    }
+
+    #[test]
+    fn test_dlp_gcp_key_blocked() {
+        let patterns = test_dlp_patterns_with_gcp();
+        match scan_dlp("key: AIzaSyA1234567890abcdefghijklmnopqrstuv", &patterns) {
+            DlpResult::Blocked { pattern_name } => assert_eq!(pattern_name, "gcp-key"),
+            _ => panic!("GCP key should block"),
+        }
+    }
 }

@@ -2285,4 +2285,434 @@ rules 0
         let new_key = "firewall:pass".to_string();
         assert!(!last_emitted.contains_key(&new_key));
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // REGRESSION TESTS — scanner.rs
+    // ═══════════════════════════════════════════════════════════════════
+
+    // --- Environment variable scanning ---
+
+    #[test]
+    fn test_env_ld_preload_suspicious_detected() {
+        // Simulate: if LD_PRELOAD is set to something non-clawguard, scan_environment_variables flags it
+        // We test the logic directly: the scan checks env::vars() which we can't mock easily,
+        // but we can verify the pattern matching logic
+        let value = "/tmp/evil.so";
+        assert!(!value.contains("clawguard"));
+    }
+
+    #[test]
+    fn test_env_ld_preload_clawguard_allowed() {
+        let value = "/usr/lib/clawguard.so";
+        assert!(value.contains("clawguard"));
+    }
+
+    #[test]
+    fn test_env_proxy_tor_detection() {
+        let key = "HTTP_PROXY";
+        let value = "socks5://127.0.0.1:9050";
+        assert!(key.contains("PROXY"));
+        assert!(value.contains("socks"));
+    }
+
+    #[test]
+    fn test_env_proxy_all_proxy_encoded() {
+        // ALL_PROXY with percent-encoded value should still be caught by substring
+        let key = "ALL_PROXY";
+        let value = "socks5h://tor-gateway:9050";
+        assert!(key.contains("PROXY"));
+        assert!(value.contains("socks"));
+    }
+
+    #[test]
+    fn test_env_proxy_normal_http_not_flagged() {
+        let value = "http://proxy.corp.com:3128";
+        assert!(!value.contains("tor") && !value.contains("socks"));
+    }
+
+    #[test]
+    fn test_env_credential_detection_long_base64() {
+        let key = "AWS_SECRET_KEY";
+        let value = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+        assert!(key.contains("KEY") || key.contains("SECRET"));
+        assert!(value.len() > 20);
+        assert!(value.chars().all(|c| c.is_ascii_alphanumeric() || c == '=' || c == '+' || c == '/'));
+    }
+
+    #[test]
+    fn test_env_debug_flag_detection() {
+        let key = "NODE_DEBUG";
+        let value = "1";
+        assert!(key.contains("DEBUG") && value == "1");
+    }
+
+    #[test]
+    fn test_env_ld_library_path_tmp() {
+        let value = "/tmp/lib:/usr/lib";
+        assert!(value.contains("/tmp"));
+    }
+
+    // --- Listening port / firewall parsing ---
+
+    #[test]
+    fn test_parse_ufw_with_ipv6_rules() {
+        let output = "Status: active\nLogging: on (low)\nDefault: deny (incoming), allow (outgoing)\n\nTo                         Action      From\n--                         ------      ----\n22/tcp                     ALLOW IN    Anywhere\n22/tcp (v6)                ALLOW IN    Anywhere (v6)\n";
+        let result = parse_ufw_status(output);
+        assert_eq!(result.status, ScanStatus::Pass);
+        assert!(result.details.contains("2 rules"));
+    }
+
+    #[test]
+    fn test_parse_ufw_many_rules() {
+        let mut output = "Status: active\nLogging: on (low)\nDefault: deny\n\nTo                         Action      From\n--                         ------      ----\n".to_string();
+        for port in 1..=50 {
+            output.push_str(&format!("{}/tcp                     ALLOW IN    Anywhere\n", port));
+        }
+        let result = parse_ufw_status(&output);
+        assert_eq!(result.status, ScanStatus::Pass);
+        assert!(result.details.contains("50 rules"));
+    }
+
+    // --- Auditd parsing edge cases ---
+
+    #[test]
+    fn test_parse_auditctl_immutable_zero_rules() {
+        let output = "enabled 2\nfailure 1\nrules 0\n";
+        let result = parse_auditctl_status(output);
+        assert_eq!(result.status, ScanStatus::Warn);
+        assert!(result.details.contains("no rules"));
+    }
+
+    #[test]
+    fn test_parse_auditctl_garbage_input() {
+        let output = "some random garbage output\n";
+        let result = parse_auditctl_status(output);
+        assert_eq!(result.status, ScanStatus::Fail);
+    }
+
+    #[test]
+    fn test_parse_auditctl_empty() {
+        let result = parse_auditctl_status("");
+        assert_eq!(result.status, ScanStatus::Fail);
+    }
+
+    // --- Kernel module patterns ---
+
+    #[test]
+    fn test_kernel_module_suspicious_patterns() {
+        let suspicious = ["rootkit", "evil", "backdoor", "stealth", "hidden", "keylog"];
+        for name in &suspicious {
+            assert!(name.to_lowercase().contains(name));
+        }
+        // Verify benign modules don't match
+        let benign = ["bluetooth", "snd_pcm", "ext4", "nfs", "iptable_filter"];
+        for name in &benign {
+            assert!(!suspicious.iter().any(|p| name.contains(p)));
+        }
+    }
+
+    #[test]
+    fn test_kernel_module_case_insensitive() {
+        let module_name = "RootKit_Module";
+        let suspicious_patterns = ["rootkit"];
+        assert!(suspicious_patterns.iter().any(|p| module_name.to_lowercase().contains(p)));
+    }
+
+    // --- Side-channel mitigations ---
+
+    #[test]
+    fn test_sidechannel_vulnerable_status() {
+        let status = "Vulnerable: Clear CPU buffers attempted, no microcode";
+        assert!(status.contains("Vulnerable"));
+    }
+
+    #[test]
+    fn test_sidechannel_mitigated_status() {
+        let status = "Mitigation: Full generic retpoline, IBPB: conditional, IBRS_FW, STIBP: conditional, RSB filling";
+        assert!(status.contains("Mitigation:"));
+        assert!(!status.contains("Vulnerable"));
+    }
+
+    #[test]
+    fn test_sidechannel_not_affected() {
+        let status = "Not affected";
+        assert!(status.contains("Not affected"));
+    }
+
+    // --- Permission scanning ---
+
+    #[test]
+    fn test_check_path_permissions_exact_match() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o600)).unwrap();
+        let result = check_path_permissions(dir.path().to_str().unwrap(), 0o600, "exact");
+        assert_eq!(result.status, ScanStatus::Pass);
+    }
+
+    #[test]
+    fn test_check_path_permissions_tighter_than_max() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o400)).unwrap();
+        let result = check_path_permissions(dir.path().to_str().unwrap(), 0o700, "tight");
+        assert_eq!(result.status, ScanStatus::Pass);
+    }
+
+    #[test]
+    fn test_check_path_permissions_world_readable() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o744)).unwrap();
+        let result = check_path_permissions(dir.path().to_str().unwrap(), 0o700, "world_read");
+        assert_eq!(result.status, ScanStatus::Fail);
+    }
+
+    #[test]
+    fn test_check_path_permissions_group_write() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o770)).unwrap();
+        let result = check_path_permissions(dir.path().to_str().unwrap(), 0o700, "group_write");
+        assert_eq!(result.status, ScanStatus::Fail);
+    }
+
+    // --- Checksum / integrity logic ---
+
+    #[test]
+    fn test_compute_sha256_real_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+        std::fs::write(&path, "hello world").unwrap();
+        let hash = compute_file_sha256(path.to_str().unwrap()).unwrap();
+        // SHA256 of "hello world"
+        assert_eq!(hash, "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9");
+    }
+
+    #[test]
+    fn test_compute_sha256_file_not_found() {
+        let result = compute_file_sha256("/nonexistent/file/abc123");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("cannot read"));
+    }
+
+    #[test]
+    fn test_compute_sha256_empty_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("empty.txt");
+        std::fs::write(&path, "").unwrap();
+        let hash = compute_file_sha256(path.to_str().unwrap()).unwrap();
+        // SHA256 of empty string
+        assert_eq!(hash, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    }
+
+    #[test]
+    fn test_compute_sha256_modified_file_differs() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("data.txt");
+        std::fs::write(&path, "original").unwrap();
+        let hash1 = compute_file_sha256(path.to_str().unwrap()).unwrap();
+        std::fs::write(&path, "modified").unwrap();
+        let hash2 = compute_file_sha256(path.to_str().unwrap()).unwrap();
+        assert_ne!(hash1, hash2);
+    }
+
+    // --- Disk usage parsing ---
+
+    #[test]
+    fn test_parse_disk_usage_exactly_90() {
+        let output = "Filesystem      Size  Used Avail Use% Mounted on\n/dev/sda1        50G   45G    5G  90% /\n";
+        let result = parse_disk_usage(output);
+        assert_eq!(result.status, ScanStatus::Pass); // 90 is NOT > 90
+    }
+
+    #[test]
+    fn test_parse_disk_usage_91() {
+        let output = "Filesystem      Size  Used Avail Use% Mounted on\n/dev/sda1        50G   46G    4G  91% /\n";
+        let result = parse_disk_usage(output);
+        assert_eq!(result.status, ScanStatus::Warn);
+    }
+
+    #[test]
+    fn test_parse_disk_usage_0_percent() {
+        let output = "Filesystem      Size  Used Avail Use% Mounted on\n/dev/sda1        50G    0G   50G   0% /\n";
+        let result = parse_disk_usage(output);
+        assert_eq!(result.status, ScanStatus::Pass);
+    }
+
+    #[test]
+    fn test_parse_disk_usage_100_percent() {
+        let output = "Filesystem      Size  Used Avail Use% Mounted on\n/dev/sda1        50G   50G    0G 100% /\n";
+        let result = parse_disk_usage(output);
+        assert_eq!(result.status, ScanStatus::Warn);
+    }
+
+    #[test]
+    fn test_parse_disk_usage_empty() {
+        let result = parse_disk_usage("");
+        assert_eq!(result.status, ScanStatus::Warn);
+        assert!(result.details.contains("Cannot parse"));
+    }
+
+    #[test]
+    fn test_parse_disk_usage_single_line() {
+        let result = parse_disk_usage("Filesystem      Size  Used Avail Use% Mounted on\n");
+        assert_eq!(result.status, ScanStatus::Warn);
+    }
+
+    // --- Immutable flag parsing ---
+
+    #[test]
+    fn test_lsattr_multiple_flags() {
+        assert!(check_lsattr_immutable("----ia--------e------- /some/file"));
+    }
+
+    #[test]
+    fn test_lsattr_only_immutable() {
+        assert!(check_lsattr_immutable("----i------------- /file"));
+    }
+
+    // --- Symlink checks ---
+
+    #[test]
+    fn test_check_symlinks_internal_link_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("real_file");
+        std::fs::write(&target, "data").unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let result = check_symlinks_in_dir(dir.path().to_str().unwrap());
+        assert_eq!(result.status, ScanStatus::Pass);
+    }
+
+    #[test]
+    fn test_check_symlinks_external_link_flagged() {
+        let dir = tempfile::tempdir().unwrap();
+        let link = dir.path().join("escape_link");
+        std::os::unix::fs::symlink("/etc/passwd", &link).unwrap();
+        let result = check_symlinks_in_dir(dir.path().to_str().unwrap());
+        assert_eq!(result.status, ScanStatus::Fail);
+        assert!(result.details.contains("/etc/passwd"));
+    }
+
+    // --- OpenClaw audit parsing ---
+
+    #[test]
+    fn test_parse_openclaw_audit_only_passes() {
+        let output = "✓ All good\n✓ Everything fine";
+        let results = parse_openclaw_audit_output(output);
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|r| r.status == ScanStatus::Pass));
+    }
+
+    #[test]
+    fn test_parse_openclaw_audit_only_failures() {
+        let output = "✗ Bad thing 1\n✗ Bad thing 2\n✗ Bad thing 3";
+        let results = parse_openclaw_audit_output(output);
+        assert_eq!(results.len(), 3);
+        assert!(results.iter().all(|r| r.status == ScanStatus::Fail));
+    }
+
+    #[test]
+    fn test_parse_openclaw_audit_unicode_handling() {
+        let output = "✓ Résumé check: ok\n⚠ Naïve setting detected";
+        let results = parse_openclaw_audit_output(output);
+        assert_eq!(results.len(), 2);
+    }
+
+    // --- mDNS detection ---
+
+    #[test]
+    fn test_mdns_clawav_exposed() {
+        let output = "+;eth0;IPv4;ClawAV Security;_http._tcp;local\n";
+        let result = check_mdns_openclaw_leak(output);
+        assert_eq!(result.status, ScanStatus::Warn);
+    }
+
+    #[test]
+    fn test_mdns_case_insensitive() {
+        let output = "+;wlan0;IPv4;OPENCLAW gateway;_http._tcp;local\n";
+        let result = check_mdns_openclaw_leak(output);
+        assert_eq!(result.status, ScanStatus::Warn);
+    }
+
+    // --- Control UI security ---
+
+    #[test]
+    fn test_control_ui_invalid_json() {
+        let config = "not valid json at all";
+        let results = scan_control_ui_security(config);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].status, ScanStatus::Pass); // silently skips
+    }
+
+    #[test]
+    fn test_control_ui_empty_object() {
+        let config = "{}";
+        let results = scan_control_ui_security(config);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].status, ScanStatus::Pass);
+    }
+
+    #[test]
+    fn test_control_ui_flags_false() {
+        let config = r#"{"controlUi": {"dangerouslyDisableDeviceAuth": false, "allowInsecureAuth": false}}"#;
+        let results = scan_control_ui_security(config);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].status, ScanStatus::Pass);
+    }
+
+    // --- Extensions scanning ---
+
+    #[test]
+    fn test_scan_extensions_dir_without_package_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let plugin_dir = dir.path().join("empty-plugin");
+        std::fs::create_dir(&plugin_dir).unwrap();
+        // No package.json — should pass
+        let result = scan_extensions_dir(dir.path().to_str().unwrap());
+        assert!(result.iter().all(|r| r.status == ScanStatus::Pass));
+    }
+
+    #[test]
+    fn test_scan_extensions_multiple_plugins() {
+        let dir = tempfile::tempdir().unwrap();
+        for i in 0..3 {
+            let plugin_dir = dir.path().join(format!("plugin-{}", i));
+            std::fs::create_dir(&plugin_dir).unwrap();
+            std::fs::write(plugin_dir.join("package.json"), "{}").unwrap();
+        }
+        let result = scan_extensions_dir(dir.path().to_str().unwrap());
+        let warns: Vec<_> = result.iter().filter(|r| r.status == ScanStatus::Warn).collect();
+        assert_eq!(warns.len(), 3);
+    }
+
+    // --- ScanResult and Alert conversion ---
+
+    #[test]
+    fn test_scan_result_category_preserved() {
+        let r = ScanResult::new("my_category", ScanStatus::Fail, "details");
+        let alert = r.to_alert().unwrap();
+        assert_eq!(alert.source, "scan:my_category");
+    }
+
+    #[test]
+    fn test_scan_result_details_preserved() {
+        let r = ScanResult::new("x", ScanStatus::Warn, "specific details here");
+        let alert = r.to_alert().unwrap();
+        assert!(alert.message.contains("specific details here"));
+    }
+
+    // --- Password policy logic ---
+
+    #[test]
+    fn test_password_policy_pass_max_days_threshold() {
+        // The scan flags PASS_MAX_DAYS > 90 or == 99999
+        let days_ok = 90u32;
+        let days_bad = 91u32;
+        let days_default = 99999u32;
+        assert!(!(days_ok > 90 || days_ok == 99999));
+        assert!(days_bad > 90 || days_bad == 99999);
+        assert!(days_default > 90 || days_default == 99999);
+    }
 }

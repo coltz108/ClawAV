@@ -261,6 +261,148 @@ mod tests {
         std::fs::remove_file(&path).ok();
     }
 
+    // --- NEW REGRESSION TESTS ---
+
+    #[test]
+    fn test_empty_chain_verifies_as_zero() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_path_buf();
+        // Empty file
+        std::fs::write(&path, "").unwrap();
+        let count = AuditChain::verify(&path).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_single_entry_chain_verifies() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_path_buf();
+        drop(tmp);
+        std::fs::remove_file(&path).ok();
+
+        let mut chain = AuditChain::new(&path).unwrap();
+        chain.append(&test_alert(Severity::Info, "test", "only one")).unwrap();
+
+        let count = AuditChain::verify(&path).unwrap();
+        assert_eq!(count, 1);
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_tampered_hash_detected() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_path_buf();
+        drop(tmp);
+        std::fs::remove_file(&path).ok();
+
+        let mut chain = AuditChain::new(&path).unwrap();
+        chain.append(&test_alert(Severity::Info, "test", "entry one")).unwrap();
+
+        // Tamper with the hash field directly
+        let content = std::fs::read_to_string(&path).unwrap();
+        let mut entry: AuditEntry = serde_json::from_str(content.trim()).unwrap();
+        entry.hash = "0000000000000000000000000000000000000000000000000000000000000bad".to_string();
+        std::fs::write(&path, serde_json::to_string(&entry).unwrap() + "\n").unwrap();
+
+        let result = AuditChain::verify(&path);
+        assert!(result.is_err(), "Tampered hash should fail verification");
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_prev_hash_tampering_detected() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_path_buf();
+        drop(tmp);
+        std::fs::remove_file(&path).ok();
+
+        let mut chain = AuditChain::new(&path).unwrap();
+        chain.append(&test_alert(Severity::Info, "test", "one")).unwrap();
+        chain.append(&test_alert(Severity::Info, "test", "two")).unwrap();
+
+        // Tamper: change prev_hash of second entry
+        let content = std::fs::read_to_string(&path).unwrap();
+        let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+        let mut entry: AuditEntry = serde_json::from_str(&lines[1]).unwrap();
+        entry.prev_hash = GENESIS_HASH.to_string(); // wrong prev_hash
+        lines[1] = serde_json::to_string(&entry).unwrap();
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+
+        let result = AuditChain::verify(&path);
+        assert!(result.is_err());
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_deleted_middle_entry_detected() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_path_buf();
+        drop(tmp);
+        std::fs::remove_file(&path).ok();
+
+        let mut chain = AuditChain::new(&path).unwrap();
+        for i in 0..3 {
+            chain.append(&test_alert(Severity::Info, "test", &format!("msg {}", i))).unwrap();
+        }
+
+        // Remove second entry
+        let content = std::fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+        let tampered = format!("{}\n{}\n", lines[0], lines[2]);
+        std::fs::write(&path, tampered).unwrap();
+
+        let result = AuditChain::verify(&path);
+        assert!(result.is_err(), "Deleted entry should break sequence/chain");
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_chain_with_blank_lines() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_path_buf();
+        drop(tmp);
+        std::fs::remove_file(&path).ok();
+
+        let mut chain = AuditChain::new(&path).unwrap();
+        chain.append(&test_alert(Severity::Info, "test", "one")).unwrap();
+        chain.append(&test_alert(Severity::Info, "test", "two")).unwrap();
+
+        // Insert blank lines
+        let content = std::fs::read_to_string(&path).unwrap();
+        let with_blanks = content.replace("\n", "\n\n");
+        std::fs::write(&path, with_blanks).unwrap();
+
+        // Should still verify (blank lines are skipped)
+        let count = AuditChain::verify(&path).unwrap();
+        assert_eq!(count, 2);
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_chain_entry_hash_deterministic() {
+        let h1 = AuditEntry::compute_hash(1, "2024-01-01T00:00:00Z", "info", "test", "msg", GENESIS_HASH);
+        let h2 = AuditEntry::compute_hash(1, "2024-01-01T00:00:00Z", "info", "test", "msg", GENESIS_HASH);
+        assert_eq!(h1, h2, "Same inputs must produce same hash");
+    }
+
+    #[test]
+    fn test_chain_entry_hash_changes_with_seq() {
+        let h1 = AuditEntry::compute_hash(1, "2024-01-01T00:00:00Z", "info", "test", "msg", GENESIS_HASH);
+        let h2 = AuditEntry::compute_hash(2, "2024-01-01T00:00:00Z", "info", "test", "msg", GENESIS_HASH);
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn test_verify_nonexistent_file() {
+        let result = AuditChain::verify(Path::new("/nonexistent/chain.log"));
+        assert!(result.is_err());
+    }
+
     #[test]
     fn test_resume_from_existing_file() {
         let tmp = NamedTempFile::new().unwrap();

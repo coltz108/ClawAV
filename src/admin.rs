@@ -503,6 +503,136 @@ mod tests {
         assert_eq!(req.command, "status");
     }
 
+    // --- NEW REGRESSION TESTS ---
+
+    #[test]
+    fn test_key_prefix_format() {
+        let (key, _) = generate_admin_key().unwrap();
+        assert!(key.starts_with("OCAV-"), "Key must start with OCAV- prefix");
+        // Hex chars only after prefix
+        let hex_part = &key[5..];
+        assert!(hex_part.chars().all(|c| c.is_ascii_hexdigit()),
+            "Key suffix must be hex only, got: {}", hex_part);
+    }
+
+    #[test]
+    fn test_key_uniqueness() {
+        let (k1, _) = generate_admin_key().unwrap();
+        let (k2, _) = generate_admin_key().unwrap();
+        assert_ne!(k1, k2, "Two generated keys should not collide");
+    }
+
+    #[test]
+    fn test_verify_empty_key() {
+        let (_, hash) = generate_admin_key().unwrap();
+        assert!(!verify_key("", &hash));
+    }
+
+    #[test]
+    fn test_verify_empty_hash() {
+        assert!(!verify_key("OCAV-test", ""));
+    }
+
+    #[test]
+    fn test_verify_key_with_prefix_stripped() {
+        // Ensure someone can't auth with just the hex part
+        let (key, hash) = generate_admin_key().unwrap();
+        let hex_only = &key[5..]; // strip "OCAV-"
+        assert!(!verify_key(hex_only, &hash), "Hex-only key should not verify");
+    }
+
+    #[test]
+    fn test_hash_key_produces_argon2_format() {
+        let hash = hash_key("test-key").unwrap();
+        assert!(hash.starts_with("$argon2"), "Hash should be argon2 format");
+        assert!(hash.contains("$"), "Hash should contain $ separators");
+    }
+
+    #[test]
+    fn test_hash_key_different_salts() {
+        let h1 = hash_key("same-key").unwrap();
+        let h2 = hash_key("same-key").unwrap();
+        assert_ne!(h1, h2, "Same key hashed twice should produce different hashes (different salts)");
+        // But both should verify
+        assert!(verify_key("same-key", &h1));
+        assert!(verify_key("same-key", &h2));
+    }
+
+    #[tokio::test]
+    async fn test_rate_limiter_exact_threshold() {
+        let mut rl = RateLimiter::new();
+        // Exactly MAX_FAILURES-1 should not lock
+        for _ in 0..MAX_FAILURES - 1 {
+            assert!(!rl.record_failure());
+        }
+        assert!(!rl.is_locked_out());
+        // The MAX_FAILURES-th failure triggers lockout
+        assert!(rl.record_failure());
+        assert!(rl.is_locked_out());
+    }
+
+    #[tokio::test]
+    async fn test_rate_limiter_reset_then_re_lockout() {
+        let mut rl = RateLimiter::new();
+        for _ in 0..MAX_FAILURES { rl.record_failure(); }
+        assert!(rl.is_locked_out());
+        rl.reset();
+        assert!(!rl.is_locked_out());
+        // Can lock out again
+        for _ in 0..MAX_FAILURES { rl.record_failure(); }
+        assert!(rl.is_locked_out());
+    }
+
+    #[test]
+    fn test_admin_request_malformed_json() {
+        let result: Result<AdminRequest, _> = serde_json::from_str("not json at all");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_admin_request_missing_key() {
+        let json = r#"{"command": "status"}"#;
+        let result: Result<AdminRequest, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "Missing required 'key' field should error");
+    }
+
+    #[test]
+    fn test_admin_request_missing_command() {
+        let json = r#"{"key": "OCAV-abc"}"#;
+        let result: Result<AdminRequest, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "Missing required 'command' field should error");
+    }
+
+    #[test]
+    fn test_admin_response_serialization() {
+        let resp = AdminResponse {
+            ok: true,
+            message: "test".to_string(),
+            data: None,
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(!json.contains("data"), "None data should be skipped");
+
+        let resp2 = AdminResponse {
+            ok: false,
+            message: "err".to_string(),
+            data: Some(serde_json::json!({"foo": "bar"})),
+        };
+        let json2 = serde_json::to_string(&resp2).unwrap();
+        assert!(json2.contains("data"));
+    }
+
+    #[test]
+    fn test_init_admin_key_existing_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let hash_path = dir.path().join("admin.hash");
+        std::fs::write(&hash_path, "existing-hash").unwrap();
+        // Should return Ok without overwriting
+        init_admin_key(&hash_path).unwrap();
+        let content = std::fs::read_to_string(&hash_path).unwrap();
+        assert_eq!(content, "existing-hash", "Existing hash should not be overwritten");
+    }
+
     #[test]
     fn test_admin_request_no_args() {
         let json = r#"{"key": "OCAV-abc123", "command": "scan"}"#;

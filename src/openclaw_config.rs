@@ -296,6 +296,114 @@ mod tests {
         assert!(!is_security_regression("tools.profile", "minimal"));
     }
 
+    // --- NEW REGRESSION TESTS ---
+
+    #[test]
+    fn test_extract_nested_json() {
+        let json = r#"{"a": {"b": {"c": "deep"}}}"#;
+        let fields = extract_security_fields(json);
+        assert_eq!(fields.get("a.b.c").unwrap(), "deep");
+    }
+
+    #[test]
+    fn test_extract_empty_json() {
+        let fields = extract_security_fields("{}");
+        assert!(fields.is_empty());
+    }
+
+    #[test]
+    fn test_extract_invalid_json() {
+        let fields = extract_security_fields("not json");
+        assert!(fields.is_empty(), "Invalid JSON should return empty map, not panic");
+    }
+
+    #[test]
+    fn test_extract_handles_numbers_and_bools() {
+        let json = r#"{"port": 8080, "enabled": true, "name": "test"}"#;
+        let fields = extract_security_fields(json);
+        assert_eq!(fields.get("port").unwrap(), "8080");
+        assert_eq!(fields.get("enabled").unwrap(), "true");
+        assert_eq!(fields.get("name").unwrap(), "test");
+    }
+
+    #[test]
+    fn test_detect_drift_multiple_changes() {
+        let baseline = extract_security_fields(sample_config());
+        let mut current = baseline.clone();
+        current.insert("gateway.auth.mode".to_string(), "none".to_string());
+        current.insert("gateway.bind".to_string(), "0.0.0.0".to_string());
+        let drifts = detect_drift(&baseline, &current);
+        assert_eq!(drifts.len(), 2);
+        assert!(drifts.iter().all(|d| d.is_regression));
+    }
+
+    #[test]
+    fn test_detect_drift_new_field_ignored() {
+        let baseline = extract_security_fields(sample_config());
+        let mut current = baseline.clone();
+        current.insert("brand.new.field".to_string(), "value".to_string());
+        // New fields not in baseline shouldn't trigger drift (only changes to existing)
+        let drifts = detect_drift(&baseline, &current);
+        assert!(drifts.is_empty(), "New fields should not count as drift");
+    }
+
+    #[test]
+    fn test_detect_drift_removed_non_security_field() {
+        let baseline = extract_security_fields(sample_config());
+        let mut current = baseline.clone();
+        current.remove("logging.redactSensitive");
+        let drifts = detect_drift(&baseline, &current);
+        // logging.redactSensitive doesn't contain auth/policy/bind/sandbox in key parts
+        assert!(drifts.is_empty() || drifts.iter().all(|d| !d.is_regression),
+            "Removing non-security field should not be regression");
+    }
+
+    #[test]
+    fn test_baseline_save_load_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("baseline.json");
+        let mut fields = HashMap::new();
+        fields.insert("gateway.auth.mode".to_string(), "token".to_string());
+        fields.insert("gateway.bind".to_string(), "loopback".to_string());
+
+        save_baseline(path.to_str().unwrap(), &fields).unwrap();
+        let loaded = load_baseline(path.to_str().unwrap()).unwrap();
+        assert_eq!(loaded, fields);
+    }
+
+    #[test]
+    fn test_load_baseline_nonexistent() {
+        assert!(load_baseline("/nonexistent/baseline.json").is_none());
+    }
+
+    #[test]
+    fn test_scan_config_drift_detects_regression() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("openclaw.json");
+        let baseline_path = dir.path().join("baseline.json");
+
+        // Write initial config and create baseline
+        std::fs::write(&config_path, sample_config()).unwrap();
+        scan_config_drift(config_path.to_str().unwrap(), baseline_path.to_str().unwrap());
+
+        // Now change config to regressive values
+        let bad_config = r#"{
+            "channels": {
+                "slack": { "dmPolicy": "open", "groupPolicy": "allowlist" }
+            },
+            "gateway": {
+                "auth": { "mode": "none", "token": "secret123" },
+                "bind": "0.0.0.0"
+            },
+            "logging": { "redactSensitive": "tools" }
+        }"#;
+        std::fs::write(&config_path, bad_config).unwrap();
+
+        let results = scan_config_drift(config_path.to_str().unwrap(), baseline_path.to_str().unwrap());
+        let fails: Vec<_> = results.iter().filter(|r| r.status == ScanStatus::Fail).collect();
+        assert!(!fails.is_empty(), "Should detect security regressions");
+    }
+
     #[test]
     fn test_is_security_regression_dangerous_flags() {
         assert!(is_security_regression("controlUi.dangerouslyDisableDeviceAuth", "true"));

@@ -335,6 +335,89 @@ mod tests {
         assert!(json.contains("test"));
     }
 
+    // --- NEW REGRESSION TESTS ---
+
+    #[test]
+    fn test_dedup_after_window_expires() {
+        let mut agg = Aggregator::new(AggregatorConfig {
+            dedup_window: Duration::from_millis(10),
+            ..Default::default()
+        });
+        let a1 = make_alert("auditd", "exec: bash", Severity::Info);
+        assert!(agg.process(a1).is_some());
+
+        std::thread::sleep(Duration::from_millis(20));
+
+        let a2 = make_alert("auditd", "exec: bash", Severity::Info);
+        assert!(agg.process(a2).is_some(), "Same alert after window should pass");
+    }
+
+    #[test]
+    fn test_different_sources_not_deduped() {
+        let mut agg = Aggregator::new(AggregatorConfig::default());
+        let a1 = make_alert("auditd", "exec: bash", Severity::Info);
+        let a2 = make_alert("network", "exec: bash", Severity::Info);
+        assert!(agg.process(a1).is_some());
+        assert!(agg.process(a2).is_some(), "Same message from different source should pass");
+    }
+
+    #[test]
+    fn test_critical_dedup_tight_window() {
+        let mut agg = Aggregator::new(AggregatorConfig::default());
+        let a1 = make_alert("falco", "privilege escalation!", Severity::Critical);
+        let a2 = make_alert("falco", "privilege escalation!", Severity::Critical);
+        assert!(agg.process(a1).is_some());
+        // Within 5-second tight window, critical IS deduped
+        assert!(agg.process(a2).is_none(), "Identical critical within 5s should be deduped");
+    }
+
+    #[test]
+    fn test_scan_source_uses_longer_dedup() {
+        let mut agg = Aggregator::new(AggregatorConfig {
+            dedup_window: Duration::from_millis(10),
+            scan_dedup_window: Duration::from_secs(3600),
+            ..Default::default()
+        });
+        let a1 = make_alert("scan:cron", "found suspicious entry", Severity::Warning);
+        assert!(agg.process(a1).is_some());
+
+        std::thread::sleep(Duration::from_millis(20));
+        // Normal dedup would have expired, but scan uses longer window
+        let a2 = make_alert("scan:cron", "found suspicious entry", Severity::Warning);
+        assert!(agg.process(a2).is_none(), "scan: source should use longer dedup window");
+    }
+
+    #[test]
+    fn test_cleanup_removes_old_entries() {
+        let mut agg = Aggregator::new(AggregatorConfig {
+            dedup_window: Duration::from_millis(1),
+            scan_dedup_window: Duration::from_millis(1),
+            rate_limit_window: Duration::from_millis(1),
+            ..Default::default()
+        });
+        for i in 0..10 {
+            agg.process(make_alert("test", &format!("msg {}", i), Severity::Info));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+        agg.cleanup();
+        assert!(agg.dedup_map.is_empty() || agg.dedup_map.len() < 10);
+    }
+
+    #[test]
+    fn test_dedup_key_shape() {
+        let a1 = make_alert("test", "pid 12345 did thing", Severity::Info);
+        let a2 = make_alert("test", "pid 99999 did thing", Severity::Info);
+        assert_eq!(Aggregator::dedup_key(&a1), Aggregator::dedup_key(&a2),
+            "Alerts differing only in digits should share dedup key");
+    }
+
+    #[test]
+    fn test_dedup_key_different_text() {
+        let a1 = make_alert("test", "opened file", Severity::Info);
+        let a2 = make_alert("test", "closed file", Severity::Info);
+        assert_ne!(Aggregator::dedup_key(&a1), Aggregator::dedup_key(&a2));
+    }
+
     #[test]
     fn test_rate_limiting() {
         let mut agg = Aggregator::new(AggregatorConfig {

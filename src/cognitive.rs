@@ -477,6 +477,118 @@ mod tests {
         assert!(alerts.is_empty());
     }
 
+    // --- NEW REGRESSION TESTS ---
+
+    #[test]
+    fn test_all_protected_files_classified() {
+        // Ensure every PROTECTED_FILE is actually checked
+        for filename in PROTECTED_FILES {
+            assert!(!filename.is_empty());
+            assert!(filename.ends_with(".md"), "Protected files should be markdown: {}", filename);
+        }
+    }
+
+    #[test]
+    fn test_all_watched_files_classified() {
+        for filename in WATCHED_FILES {
+            assert!(!filename.is_empty());
+        }
+        assert!(WATCHED_FILES.contains(&"MEMORY.md"), "MEMORY.md must be watched");
+    }
+
+    #[test]
+    fn test_protected_and_watched_no_overlap() {
+        for f in PROTECTED_FILES {
+            assert!(!WATCHED_FILES.contains(f),
+                "{} is in both PROTECTED and WATCHED — must be one or the other", f);
+        }
+    }
+
+    #[test]
+    fn test_update_file_rebaselines_single() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("SOUL.md"), "original").unwrap();
+
+        let mut baseline = CognitiveBaseline::from_workspace(dir.path());
+        fs::write(dir.path().join("SOUL.md"), "modified").unwrap();
+
+        assert_eq!(baseline.check().len(), 1);
+        baseline.update_file(&dir.path().join("SOUL.md"));
+        assert!(baseline.check().is_empty(), "After update_file, no alerts");
+    }
+
+    #[test]
+    fn test_multiple_files_modified() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("SOUL.md"), "soul").unwrap();
+        fs::write(dir.path().join("TOOLS.md"), "tools").unwrap();
+        fs::write(dir.path().join("MEMORY.md"), "memory").unwrap();
+
+        let baseline = CognitiveBaseline::from_workspace(dir.path());
+
+        fs::write(dir.path().join("SOUL.md"), "evil soul").unwrap();
+        fs::write(dir.path().join("TOOLS.md"), "evil tools").unwrap();
+        fs::write(dir.path().join("MEMORY.md"), "new memory").unwrap();
+
+        let alerts = baseline.check();
+        assert_eq!(alerts.len(), 3);
+
+        let protected_count = alerts.iter().filter(|a| !a.watched).count();
+        let watched_count = alerts.iter().filter(|a| a.watched).count();
+        assert_eq!(protected_count, 2, "SOUL.md and TOOLS.md are protected");
+        assert_eq!(watched_count, 1, "MEMORY.md is watched");
+    }
+
+    #[test]
+    fn test_baseline_save_format() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("SOUL.md"), "test content").unwrap();
+
+        let baseline = CognitiveBaseline::from_workspace(dir.path());
+        let bp = dir.path().join("baselines.sha256");
+        baseline.save(&bp).unwrap();
+
+        let content = fs::read_to_string(&bp).unwrap();
+        // Format: "hash path\n"
+        for line in content.lines() {
+            let parts: Vec<&str> = line.splitn(2, ' ').collect();
+            assert_eq!(parts.len(), 2, "Baseline line should be 'hash path'");
+            assert_eq!(parts[0].len(), 64, "SHA-256 hash should be 64 hex chars");
+        }
+    }
+
+    #[test]
+    fn test_cognitive_alert_display() {
+        let alert = CognitiveAlert {
+            file: PathBuf::from("/test/SOUL.md"),
+            kind: CognitiveAlertKind::Deleted,
+            watched: false,
+        };
+        let s = format!("{}", alert);
+        assert!(s.contains("SOUL.md"));
+        assert!(s.contains("deleted"));
+    }
+
+    #[test]
+    fn test_compute_sha256_deterministic() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.txt");
+        fs::write(&path, "hello world").unwrap();
+
+        let h1 = compute_sha256(&path).unwrap();
+        let h2 = compute_sha256(&path).unwrap();
+        assert_eq!(h1, h2);
+        assert_eq!(h1.len(), 64);
+    }
+
+    #[test]
+    fn test_empty_workspace_no_baselines() {
+        let dir = TempDir::new().unwrap();
+        let baseline = CognitiveBaseline::from_workspace(dir.path());
+        assert!(baseline.baselines.is_empty());
+        assert!(baseline.check().is_empty());
+    }
+
     #[test]
     fn test_rebaseline() {
         let dir = TempDir::new().unwrap();
