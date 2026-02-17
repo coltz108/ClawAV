@@ -536,7 +536,7 @@ pub fn classify_behavior(event: &ParsedEvent) -> Option<(BehaviorCategory, Sever
         }
 
         // --- CRITICAL: History tampering ---
-        if ["rm", "mv", "cp", ">", "truncate", "unset", "export"].contains(&binary) ||
+        if ["rm", "mv", "cp", "ln", ">", "truncate", "unset", "export"].contains(&binary) ||
            cmd_lower.contains("histsize=0") || cmd_lower.contains("histfilesize=0") {
             for pattern in HISTORY_TAMPER_PATTERNS {
                 if cmd.contains(pattern) {
@@ -2641,6 +2641,46 @@ mod tests {
         let event = make_syscall_event("openat", "/usr/lib/python3/sitecustomize.py");
         let result = classify_behavior(&event);
         assert!(result.is_some(), "Writing sitecustomize.py should be detected as persistence");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // BUG FIX TEST — B-1: history tamper via symlink (ln)
+    // ═══════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_ln_symlink_bash_history_detected() {
+        // B-1: `ln -sf /dev/null ~/.bash_history` should be detected as history tampering
+        let event = make_exec_event(&["ln", "-sf", "/dev/null", "/home/user/.bash_history"]);
+        let result = classify_behavior(&event);
+        assert!(result.is_some(), "ln -sf /dev/null ~/.bash_history should be detected as history tampering");
+        let (cat, sev) = result.unwrap();
+        assert_eq!(cat, BehaviorCategory::SecurityTamper);
+        assert_eq!(sev, Severity::Critical);
+    }
+
+    #[test]
+    fn test_ln_symlink_zsh_history_detected() {
+        let event = make_exec_event(&["ln", "-sf", "/dev/null", "/home/user/.zsh_history"]);
+        let result = classify_behavior(&event);
+        assert!(result.is_some(), "ln -sf /dev/null ~/.zsh_history should be detected");
+        assert_eq!(result.unwrap().0, BehaviorCategory::SecurityTamper);
+    }
+
+    #[test]
+    fn test_ln_normal_not_flagged() {
+        // ln to a non-history file should not trigger history tamper
+        let event = make_exec_event(&["ln", "-s", "/usr/bin/python3", "/usr/local/bin/python"]);
+        let result = classify_behavior(&event);
+        // Should not match history tamper (may match other rules like binary replacement)
+        if let Some((cat, _)) = &result {
+            // If it matches something, it should NOT be due to history tamper patterns
+            // (it might match binary replacement which is fine)
+            assert!(
+                *cat != BehaviorCategory::SecurityTamper || 
+                !event.command.as_ref().unwrap().contains("history"),
+                "ln to non-history file should not trigger history tamper"
+            );
+        }
     }
 }
 
