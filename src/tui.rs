@@ -657,13 +657,13 @@ fn get_section_fields(config: &Config, section: &str, tool_cache: &HashMap<Strin
                 name: "watch_all_users".to_string(),
                 value: config.general.watch_all_users.to_string(),
                 section: section.to_string(),
-                field_type: FieldType::Bool,
+                field_type: FieldType::Enum(vec!["true".into(), "false".into()]),
             },
             ConfigField {
                 name: "min_alert_level".to_string(),
                 value: config.general.min_alert_level.clone(),
                 section: section.to_string(),
-                field_type: FieldType::Text,
+                field_type: FieldType::Enum(vec!["info".into(), "warn".into(), "crit".into()]),
             },
             ConfigField {
                 name: "log_file".to_string(),
@@ -677,7 +677,7 @@ fn get_section_fields(config: &Config, section: &str, tool_cache: &HashMap<Strin
                 name: "enabled".to_string(),
                 value: config.slack.enabled.unwrap_or(false).to_string(),
                 section: section.to_string(),
-                field_type: FieldType::Bool,
+                field_type: FieldType::Enum(vec!["true".into(), "false".into()]),
             },
             ConfigField {
                 name: "webhook_url".to_string(),
@@ -701,7 +701,7 @@ fn get_section_fields(config: &Config, section: &str, tool_cache: &HashMap<Strin
                 name: "min_slack_level".to_string(),
                 value: config.slack.min_slack_level.clone(),
                 section: section.to_string(),
-                field_type: FieldType::Text,
+                field_type: FieldType::Enum(vec!["info".into(), "warn".into(), "crit".into()]),
             },
         ],
         "auditd" => vec![
@@ -709,7 +709,7 @@ fn get_section_fields(config: &Config, section: &str, tool_cache: &HashMap<Strin
                 name: "enabled".to_string(),
                 value: config.auditd.enabled.to_string(),
                 section: section.to_string(),
-                field_type: FieldType::Bool,
+                field_type: FieldType::Enum(vec!["true".into(), "false".into()]),
             },
             ConfigField {
                 name: "log_path".to_string(),
@@ -723,7 +723,7 @@ fn get_section_fields(config: &Config, section: &str, tool_cache: &HashMap<Strin
                 name: "enabled".to_string(),
                 value: config.network.enabled.to_string(),
                 section: section.to_string(),
-                field_type: FieldType::Bool,
+                field_type: FieldType::Enum(vec!["true".into(), "false".into()]),
             },
             ConfigField {
                 name: "log_path".to_string(),
@@ -751,7 +751,7 @@ fn get_section_fields(config: &Config, section: &str, tool_cache: &HashMap<Strin
                     name: "enabled".to_string(),
                     value: config.falco.enabled.to_string(),
                     section: section.to_string(),
-                    field_type: FieldType::Bool,
+                    field_type: FieldType::Enum(vec!["true".into(), "false".into()]),
                 },
                 ConfigField {
                     name: "log_path".to_string(),
@@ -783,7 +783,7 @@ fn get_section_fields(config: &Config, section: &str, tool_cache: &HashMap<Strin
                     name: "enabled".to_string(),
                     value: config.samhain.enabled.to_string(),
                     section: section.to_string(),
-                    field_type: FieldType::Bool,
+                    field_type: FieldType::Enum(vec!["true".into(), "false".into()]),
                 },
                 ConfigField {
                     name: "log_path".to_string(),
@@ -813,7 +813,7 @@ fn get_section_fields(config: &Config, section: &str, tool_cache: &HashMap<Strin
                 name: "enabled".to_string(),
                 value: config.api.enabled.to_string(),
                 section: section.to_string(),
-                field_type: FieldType::Bool,
+                field_type: FieldType::Enum(vec!["true".into(), "false".into()]),
             },
             ConfigField {
                 name: "bind".to_string(),
@@ -841,7 +841,7 @@ fn get_section_fields(config: &Config, section: &str, tool_cache: &HashMap<Strin
                 name: "enabled".to_string(),
                 value: config.proxy.enabled.to_string(),
                 section: section.to_string(),
-                field_type: FieldType::Bool,
+                field_type: FieldType::Enum(vec!["true".into(), "false".into()]),
             },
             ConfigField {
                 name: "bind".to_string(),
@@ -861,7 +861,7 @@ fn get_section_fields(config: &Config, section: &str, tool_cache: &HashMap<Strin
                 name: "enabled".to_string(),
                 value: config.policy.enabled.to_string(),
                 section: section.to_string(),
-                field_type: FieldType::Bool,
+                field_type: FieldType::Enum(vec!["true".into(), "false".into()]),
             },
             ConfigField {
                 name: "dir".to_string(),
@@ -875,7 +875,7 @@ fn get_section_fields(config: &Config, section: &str, tool_cache: &HashMap<Strin
                 name: "enabled".to_string(),
                 value: config.secureclaw.enabled.to_string(),
                 section: section.to_string(),
-                field_type: FieldType::Bool,
+                field_type: FieldType::Enum(vec!["true".into(), "false".into()]),
             },
             ConfigField {
                 name: "vendor_dir".to_string(),
@@ -889,13 +889,13 @@ fn get_section_fields(config: &Config, section: &str, tool_cache: &HashMap<Strin
                 name: "enabled".to_string(),
                 value: config.netpolicy.enabled.to_string(),
                 section: section.to_string(),
-                field_type: FieldType::Bool,
+                field_type: FieldType::Enum(vec!["true".into(), "false".into()]),
             },
             ConfigField {
                 name: "mode".to_string(),
                 value: config.netpolicy.mode.clone(),
                 section: section.to_string(),
-                field_type: FieldType::Text,
+                field_type: FieldType::Enum(vec!["allow".into(), "deny".into(), "disabled".into()]),
             },
             ConfigField {
                 name: "allowed_ports".to_string(),
