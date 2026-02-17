@@ -389,15 +389,37 @@ impl App {
             // Handle editing mode
             match key {
                 KeyCode::Enter => {
-                    // Confirm edit
-                    if let Some(ref mut config) = self.config {
-                        let section = &self.config_sections[self.config_selected_section];
-                        let field = &self.config_fields[self.config_selected_field];
-                        apply_field_to_config(config, section, &field.name, &self.config_edit_buffer);
-                        self.refresh_fields();
+                    // Validate before applying
+                    let field = &self.config_fields[self.config_selected_field];
+                    let value = &self.config_edit_buffer;
+
+                    let valid = match &field.field_type {
+                        FieldType::Number => value.parse::<u64>().is_ok(),
+                        FieldType::Bool => value == "true" || value == "false",
+                        FieldType::Text => true,
+                        FieldType::Action(_) => true,
+                    };
+
+                    if valid {
+                        if let Some(ref mut config) = self.config {
+                            let section = &self.config_sections[self.config_selected_section];
+                            let field = &self.config_fields[self.config_selected_field];
+                            apply_field_to_config(config, section, &field.name, &self.config_edit_buffer);
+                            self.refresh_fields();
+                        }
+                        self.config_editing = false;
+                        self.config_edit_buffer.clear();
+                    } else {
+                        self.config_saved_message = Some(format!(
+                            "❌ Invalid {}: \"{}\"",
+                            match &field.field_type {
+                                FieldType::Number => "number",
+                                FieldType::Bool => "boolean (true/false)",
+                                _ => "value",
+                            },
+                            value
+                        ));
                     }
-                    self.config_editing = false;
-                    self.config_edit_buffer.clear();
                 }
                 KeyCode::Esc => {
                     // Cancel edit
@@ -1167,7 +1189,7 @@ fn render_config_tab(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(fields_list, chunks[1]);
 }
 
-fn ui(f: &mut Frame, app: &App) {
+fn ui(f: &mut Frame, app: &mut App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(3), Constraint::Min(0)])
@@ -1184,10 +1206,10 @@ fn ui(f: &mut Frame, app: &App) {
 
     // Content area
     match app.selected_tab {
-        0 => render_alerts_tab(f, chunks[1], app),
-        1 => render_network_tab(f, chunks[1], app),
-        2 => render_falco_tab(f, chunks[1], app),
-        3 => render_fim_tab(f, chunks[1], app),
+        0 => render_alert_list(f, chunks[1], app, 0, None, "Alert Feed"),
+        1 => render_alert_list(f, chunks[1], app, 1, Some("network"), "Network Activity"),
+        2 => render_alert_list(f, chunks[1], app, 2, Some("falco"), "Falco eBPF Alerts"),
+        3 => render_alert_list(f, chunks[1], app, 3, Some("samhain"), "File Integrity"),
         4 => render_system_tab(f, chunks[1], app),
         5 => render_config_tab(f, chunks[1], app),
         _ => {}
@@ -1274,7 +1296,7 @@ pub async fn run_tui(mut alert_rx: mpsc::Receiver<Alert>, config_path: Option<Pa
     }
 
     loop {
-        terminal.draw(|f| ui(f, &app))?;
+        terminal.draw(|f| ui(f, &mut app))?;
 
         // Check for keyboard events (non-blocking)
         if event::poll(Duration::from_millis(100))? {
