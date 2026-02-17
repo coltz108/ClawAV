@@ -259,9 +259,56 @@ impl App {
             self.config_saved_message = None;
         }
 
+        // Search mode input
+        if self.search_active {
+            match key {
+                KeyCode::Enter => {
+                    self.search_filter = self.search_buffer.clone();
+                    self.search_active = false;
+                }
+                KeyCode::Esc => {
+                    self.search_active = false;
+                    self.search_buffer.clear();
+                }
+                KeyCode::Backspace => { self.search_buffer.pop(); }
+                KeyCode::Char(c) => { self.search_buffer.push(c); }
+                _ => {}
+            }
+            return;
+        }
+
+        // Detail view mode
+        if self.detail_alert.is_some() {
+            match key {
+                KeyCode::Esc | KeyCode::Backspace | KeyCode::Char('q') => {
+                    self.detail_alert = None;
+                }
+                KeyCode::Char('m') => {
+                    // Mute/unmute the source of the viewed alert
+                    if let Some(ref alert) = self.detail_alert {
+                        let src = alert.source.clone();
+                        if let Some(pos) = self.muted_sources.iter().position(|s| s == &src) {
+                            self.muted_sources.remove(pos);
+                        } else {
+                            self.muted_sources.push(src);
+                        }
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
+
         match key {
-            KeyCode::Char('q') | KeyCode::Esc if !self.config_editing => self.should_quit = true,
-            // Config tab: Left/Right navigate sections, only Tab/BackTab switch tabs
+            KeyCode::Char('q') | KeyCode::Esc if !self.config_editing => {
+                // If search filter is active, Esc clears it first
+                if !self.search_filter.is_empty() && key == KeyCode::Esc {
+                    self.search_filter.clear();
+                    self.search_buffer.clear();
+                } else {
+                    self.should_quit = true;
+                }
+            }
             KeyCode::Tab if !self.config_editing => {
                 self.selected_tab = (self.selected_tab + 1) % self.tab_titles.len();
             }
@@ -284,7 +331,54 @@ impl App {
                 }
                 if self.selected_tab == 5 { self.config_focus = ConfigFocus::Sidebar; }
             }
-            // Config tab specific keys (including Left/Right for section nav)
+            // Alert list tabs (0-3): scroll, select, search, pause
+            KeyCode::Up if self.selected_tab <= 3 => {
+                let state = &mut self.list_states[self.selected_tab];
+                let i = state.selected().unwrap_or(0);
+                state.select(Some(i.saturating_sub(1)));
+            }
+            KeyCode::Down if self.selected_tab <= 3 => {
+                let state = &mut self.list_states[self.selected_tab];
+                let i = state.selected().unwrap_or(0);
+                state.select(Some(i + 1)); // ListState clamps to list len during render
+            }
+            KeyCode::Enter if self.selected_tab <= 3 => {
+                // Open detail view for selected alert
+                let tab = self.selected_tab;
+                let selected_idx = self.list_states[tab].selected().unwrap_or(0);
+                let source_filter: Option<&str> = match tab {
+                    1 => Some("network"),
+                    2 => Some("falco"),
+                    3 => Some("samhain"),
+                    _ => None,
+                };
+                let filtered: Vec<&Alert> = self.alert_store.alerts()
+                    .iter()
+                    .rev()
+                    .filter(|a| {
+                        if let Some(src) = source_filter {
+                            if a.source != src { return false; }
+                        }
+                        if self.muted_sources.contains(&a.source) { return false; }
+                        if !self.search_filter.is_empty() {
+                            let h = a.to_string().to_lowercase();
+                            if !h.contains(&self.search_filter.to_lowercase()) { return false; }
+                        }
+                        true
+                    })
+                    .collect();
+                if let Some(alert) = filtered.get(selected_idx) {
+                    self.detail_alert = Some((*alert).clone());
+                }
+            }
+            KeyCode::Char('/') if self.selected_tab <= 3 => {
+                self.search_active = true;
+                self.search_buffer = self.search_filter.clone();
+            }
+            KeyCode::Char(' ') if self.selected_tab <= 3 => {
+                self.paused = !self.paused;
+            }
+            // Config tab specific keys
             _ if self.selected_tab == 5 => self.handle_config_key(key, modifiers),
             _ => {}
         }
@@ -861,91 +955,76 @@ fn apply_field_to_config(config: &mut Config, section: &str, field_name: &str, v
     }
 }
 
-fn render_alerts_tab(f: &mut Frame, area: Rect, app: &App) {
-    let items: Vec<ListItem> = app
-        .alert_store
-        .alerts()
+fn render_alert_list(
+    f: &mut Frame,
+    area: Rect,
+    app: &mut App,
+    tab_index: usize,
+    source_filter: Option<&str>,
+    title: &str,
+) {
+    let alerts = app.alert_store.alerts();
+    let filtered: Vec<&Alert> = alerts
         .iter()
         .rev()
+        .filter(|a| {
+            if let Some(src) = source_filter {
+                if a.source != src {
+                    return false;
+                }
+            }
+            if app.muted_sources.contains(&a.source) {
+                return false;
+            }
+            if !app.search_filter.is_empty() {
+                let haystack = a.to_string().to_lowercase();
+                if !haystack.contains(&app.search_filter.to_lowercase()) {
+                    return false;
+                }
+            }
+            true
+        })
+        .collect();
+
+    let now = chrono::Local::now();
+    let items: Vec<ListItem> = filtered
+        .iter()
         .map(|alert| {
+            let age = now.signed_duration_since(alert.timestamp);
+            let age_str = if age.num_seconds() < 60 {
+                format!("{}s ago", age.num_seconds())
+            } else if age.num_minutes() < 60 {
+                format!("{}m ago", age.num_minutes())
+            } else if age.num_hours() < 24 {
+                format!("{}h ago", age.num_hours())
+            } else {
+                format!("{}d ago", age.num_days())
+            };
+
             let style = match alert.severity {
                 Severity::Critical => Style::default().fg(Color::Red).bold(),
                 Severity::Warning => Style::default().fg(Color::Yellow),
-                Severity::Info => Style::default().fg(Color::Gray),
+                Severity::Info => Style::default().fg(Color::Blue),
             };
-            ListItem::new(alert.to_string()).style(style)
+            ListItem::new(format!(
+                "{} {} [{}] {}",
+                age_str, alert.severity, alert.source, alert.message
+            ))
+            .style(style)
         })
         .collect();
+
+    let count = items.len();
+    let display_title = format!(" {} ({}) ", title, count);
+    let pause_indicator = if app.paused { " ⏸ PAUSED " } else { "" };
+    let full_title = format!("{}{}", display_title, pause_indicator);
 
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(" Alert Feed "));
-    f.render_widget(list, area);
-}
+        .block(Block::default().borders(Borders::ALL).title(full_title))
+        .highlight_style(Style::default().bg(Color::DarkGray).fg(Color::White))
+        .highlight_symbol("▶ ");
 
-fn render_network_tab(f: &mut Frame, area: Rect, app: &App) {
-    let network_alerts: Vec<ListItem> = app
-        .alert_store
-        .alerts()
-        .iter()
-        .rev()
-        .filter(|a| a.source == "network")
-        .map(|alert| {
-            let style = match alert.severity {
-                Severity::Critical => Style::default().fg(Color::Red).bold(),
-                Severity::Warning => Style::default().fg(Color::Yellow),
-                Severity::Info => Style::default().fg(Color::Gray),
-            };
-            ListItem::new(alert.to_string()).style(style)
-        })
-        .collect();
-
-    let list = List::new(network_alerts)
-        .block(Block::default().borders(Borders::ALL).title(" Network Activity "));
-    f.render_widget(list, area);
-}
-
-fn render_falco_tab(f: &mut Frame, area: Rect, app: &App) {
-    let falco_alerts: Vec<ListItem> = app
-        .alert_store
-        .alerts()
-        .iter()
-        .rev()
-        .filter(|a| a.source == "falco")
-        .map(|alert| {
-            let style = match alert.severity {
-                Severity::Critical => Style::default().fg(Color::Red).bold(),
-                Severity::Warning => Style::default().fg(Color::Yellow),
-                Severity::Info => Style::default().fg(Color::Gray),
-            };
-            ListItem::new(alert.to_string()).style(style)
-        })
-        .collect();
-
-    let list = List::new(falco_alerts)
-        .block(Block::default().borders(Borders::ALL).title(" Falco eBPF Alerts "));
-    f.render_widget(list, area);
-}
-
-fn render_fim_tab(f: &mut Frame, area: Rect, app: &App) {
-    let fim_alerts: Vec<ListItem> = app
-        .alert_store
-        .alerts()
-        .iter()
-        .rev()
-        .filter(|a| a.source == "samhain")
-        .map(|alert| {
-            let style = match alert.severity {
-                Severity::Critical => Style::default().fg(Color::Red).bold(),
-                Severity::Warning => Style::default().fg(Color::Yellow),
-                Severity::Info => Style::default().fg(Color::Gray),
-            };
-            ListItem::new(alert.to_string()).style(style)
-        })
-        .collect();
-
-    let list = List::new(fim_alerts)
-        .block(Block::default().borders(Borders::ALL).title(" File Integrity (Samhain) "));
-    f.render_widget(list, area);
+    f.render_stateful_widget(list, area, &mut app.list_states[tab_index]);
 }
 
 fn render_system_tab(f: &mut Frame, area: Rect, app: &App) {
