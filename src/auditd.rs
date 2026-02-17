@@ -12,6 +12,7 @@
 use anyhow::Result;
 use std::io::{BufRead, BufReader};
 use std::fs::File;
+use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -477,9 +478,9 @@ pub async fn tail_audit_log(
     use tokio::time::{sleep, Duration};
 
     let mut file = File::open(path)?;
+    let mut current_inode = file.metadata()?.ino();
     // Seek to last 64KB instead of EOF to catch events during downtime/crash-loops
     if file.seek(SeekFrom::End(-65536)).is_err() {
-        // File smaller than 64KB, seek to start
         file.seek(SeekFrom::Start(0))?;
     }
     let mut reader = BufReader::new(file);
@@ -492,6 +493,44 @@ pub async fn tail_audit_log(
         line.clear();
         match reader.read_line(&mut line) {
             Ok(0) => {
+                // Check for log rotation: if the path now points to a different
+                // inode, auditd has rotated the file. Reopen to follow the new log.
+                if let Ok(meta) = std::fs::metadata(path) {
+                    if meta.ino() != current_inode {
+                        let _ = tx.send(Alert::new(
+                            Severity::Info,
+                            "auditd",
+                            &format!("Audit log rotated (inode {} → {}), reopening", current_inode, meta.ino()),
+                        )).await;
+                        // Drain remaining lines from old file before switching
+                        loop {
+                            line.clear();
+                            match reader.read_line(&mut line) {
+                                Ok(0) => break,
+                                Ok(_) => {
+                                    if let Some(alert) = parse_audit_line(&line, watched_users.as_deref()) {
+                                        let _ = tx.send(alert).await;
+                                    }
+                                }
+                                Err(_) => break,
+                            }
+                        }
+                        // Reopen from start of new file
+                        match File::open(path) {
+                            Ok(new_file) => {
+                                current_inode = meta.ino();
+                                reader = BufReader::new(new_file);
+                            }
+                            Err(e) => {
+                                let _ = tx.send(Alert::new(
+                                    Severity::Warning, "auditd",
+                                    &format!("Failed to reopen rotated audit log: {}", e),
+                                )).await;
+                            }
+                        }
+                        continue;
+                    }
+                }
                 sleep(Duration::from_millis(200)).await;
             }
             Ok(_) => {
@@ -554,6 +593,7 @@ pub async fn tail_audit_log_full(
     use tokio::time::{sleep, Duration};
 
     let mut file = File::open(path)?;
+    let mut current_inode = file.metadata()?.ino();
     // Seek to last 64KB instead of EOF to catch events during downtime/crash-loops
     if file.seek(SeekFrom::End(-65536)).is_err() {
         // File smaller than 64KB, seek to start
@@ -598,8 +638,60 @@ pub async fn tail_audit_log_full(
         line.clear();
         match reader.read_line(&mut line) {
             Ok(0) => {
+                // Check for log rotation before sleeping.
+                // auditd rotates to audit.log.1 etc — if the path inode changed,
+                // we must reopen to follow the new file. Without this, ClawTower
+                // goes blind after rotation (reads EOF forever on the old fd).
+                if let Ok(meta) = std::fs::metadata(path) {
+                    if meta.ino() != current_inode {
+                        let _ = tx.send(Alert::new(
+                            Severity::Warning,
+                            "auditd",
+                            &format!("🔄 Audit log rotated (inode {} → {}), reopening", current_inode, meta.ino()),
+                        )).await;
+                        // Drain remaining lines from old file
+                        loop {
+                            line.clear();
+                            match reader.read_line(&mut line) {
+                                Ok(0) => break,
+                                Ok(_) => {
+                                    if let Some(event) = parse_to_event(&line, watched_users.as_deref()) {
+                                        if let Some(tamper_alert) = check_tamper_event(&event) {
+                                            let _ = tx.send(tamper_alert).await;
+                                        }
+                                        if let Some(ref engine) = policy_engine {
+                                            if let Some(verdict) = engine.evaluate(&event) {
+                                                let msg = format!("[POLICY:{}] {}", verdict.rule_name, verdict.description);
+                                                let _ = tx.send(Alert::new(verdict.severity, "policy", &msg)).await;
+                                            }
+                                        }
+                                        let alert = event_to_alert(&event);
+                                        if let Some((cat, sev)) = crate::behavior::classify_behavior(&event) {
+                                            let msg = format!("[{}:{}] {}", cat, sev, alert.message);
+                                            let _ = tx.send(Alert::new(sev, "behavior", &msg)).await;
+                                        }
+                                    }
+                                }
+                                Err(_) => break,
+                            }
+                        }
+                        // Reopen from start of new file
+                        match File::open(path) {
+                            Ok(new_file) => {
+                                current_inode = meta.ino();
+                                reader = BufReader::new(new_file);
+                            }
+                            Err(e) => {
+                                let _ = tx.send(Alert::new(
+                                    Severity::Warning, "auditd",
+                                    &format!("Failed to reopen rotated audit log: {}", e),
+                                )).await;
+                            }
+                        }
+                        continue;
+                    }
+                }
                 // 200ms poll — keeps latency under 1s for Red Lobster's 3s check window.
-                // Previous 500ms caused edge-case timing failures (Flag 9 env-var test).
                 sleep(Duration::from_millis(200)).await;
             }
             Ok(_) => {
@@ -1365,6 +1457,30 @@ mod tests {
     #[test]
     fn test_memfd_create_syscall_name() {
         assert_eq!(syscall_name_aarch64(279), "memfd_create");
+    }
+
+    #[test]
+    fn test_log_rotation_inode_detection() {
+        // Verify that MetadataExt::ino() works for rotation detection
+        use std::os::unix::fs::MetadataExt;
+        let tmp1 = std::env::temp_dir().join("audit_rotation_test_1.log");
+        let tmp2 = std::env::temp_dir().join("audit_rotation_test_2.log");
+        std::fs::write(&tmp1, "line1\n").unwrap();
+        std::fs::write(&tmp2, "line2\n").unwrap();
+        let ino1 = std::fs::metadata(&tmp1).unwrap().ino();
+        let ino2 = std::fs::metadata(&tmp2).unwrap().ino();
+        assert_ne!(ino1, ino2, "Different files should have different inodes");
+        // Simulate rotation: rename tmp1 → tmp1.1, rename tmp2 → tmp1
+        let tmp1_rotated = std::env::temp_dir().join("audit_rotation_test_1.log.1");
+        std::fs::rename(&tmp1, &tmp1_rotated).unwrap();
+        std::fs::rename(&tmp2, &tmp1).unwrap();
+        // Now tmp1 path has tmp2's inode
+        let ino_after = std::fs::metadata(&tmp1).unwrap().ino();
+        assert_eq!(ino_after, ino2, "After rotation, path should point to new inode");
+        assert_ne!(ino_after, ino1, "After rotation, inode should differ from original");
+        // Cleanup
+        let _ = std::fs::remove_file(&tmp1);
+        let _ = std::fs::remove_file(&tmp1_rotated);
     }
 
     #[test]
