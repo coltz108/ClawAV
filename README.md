@@ -12,26 +12,112 @@
 
 ---
 
-## Table of Contents
-
-- [What is ClawTower?](#what-is-clawtower)
-- [Who It's For](#who-its-for)
-- [How ClawTower Fits](#how-clawtower-fits)
-- [Features](#features)
-- [Quick Start](#quick-start)
-- [Configuration](#configuration)
-- [Usage](#usage)
-- [Architecture Overview](#architecture-overview)
-- [Contributing](#contributing)
-- [License](#license)
-
-## What is ClawTower?
-
 Autonomous AI agents operate with real system access — executing commands, editing files, and managing infrastructure. But who watches the watcher? Traditional security tools weren't designed for a world where the *user* is an AI that could, intentionally or through prompt injection, disable its own monitoring.
 
 ClawTower solves this with the **"swallowed key" pattern**: the agent (or its operator) installs ClawTower, but once running, the agent *cannot* modify, disable, or uninstall it. The binary is immutable (`chattr +i`), the service is protected by systemd, and the admin key is hashed and stored outside the agent's reach. Every attempt to tamper is logged and alerted on.
 
 Under the hood, ClawTower provides real-time file integrity monitoring via inotify, behavioral analysis of syscalls through auditd, threat pattern detection across file contents, and 30+ periodic security scanners — all feeding into a hash-chained audit trail that's cryptographically tamper-evident. Think of it as an immune system for machines running AI agents.
+
+Marketplace scanners like VirusTotal are great at catching known malware signatures. ClawTower catches the *unknown* — novel exfiltration, privilege escalation, reverse shells, and tamper attempts — through behavioral analysis and policy enforcement. **They're complementary.** Use both.
+
+## Quick Start
+
+### One-line Install
+
+```bash
+curl -sSL https://raw.githubusercontent.com/coltz108/ClawTower/main/scripts/oneshot-install.sh | sudo bash
+```
+
+### Build from Source
+
+```bash
+git clone https://github.com/coltz108/ClawTower.git
+cd ClawTower
+cargo build --release
+
+# Install binaries
+sudo install -m 755 target/release/clawtower /usr/local/bin/clawtower
+sudo install -m 755 target/release/clawsudo /usr/local/bin/clawsudo
+
+# Make immutable (the "swallowed key")
+sudo chattr +i /usr/local/bin/clawtower
+```
+
+### Initial Setup
+
+```bash
+# 1. Create config directory and copy config
+sudo mkdir -p /etc/clawtower
+sudo cp config.toml /etc/clawtower/config.toml
+
+# Customize via drop-in overrides (survives updates)
+sudo mkdir -p /etc/clawtower/config.d
+sudo nano /etc/clawtower/config.d/my-overrides.toml    # watched_users, slack webhook, etc.
+
+# 2. Run the setup script (installs binary, creates dirs, sets up systemd)
+sudo scripts/setup.sh
+
+# 3. Admin key is auto-generated on first run — save it!
+#    It is displayed ONCE in journalctl output and stored only as an Argon2 hash
+```
+
+> **Note:** Don't edit `config.toml` directly — it gets replaced on updates. Put your customizations in `/etc/clawtower/config.d/*.toml` drop-in files instead.
+
+**Recommended hardening** (run after setup):
+
+```bash
+sudo scripts/setup-auditd.sh        # Syscall monitoring — highly recommended
+sudo scripts/setup-sudoers-deny.sh  # Block agent from stopping ClawTower
+sudo scripts/setup-slack.sh         # Slack alerts
+```
+
+**Optional integrations** (add as needed):
+
+```bash
+sudo scripts/setup-iptables.sh      # Network alert logging
+sudo scripts/setup-apparmor.sh      # AppArmor confinement
+sudo scripts/build-preload.sh       # Build LD_PRELOAD guard library
+sudo scripts/enable-preload.sh      # Activate LD_PRELOAD guard
+sudo scripts/setup-falco.sh         # Falco eBPF monitoring
+sudo scripts/setup-samhain.sh       # Samhain file integrity
+```
+
+> 📖 **Full installation guide:** See [`docs/INSTALL.md`](docs/INSTALL.md) for prerequisites, hardening details, and recovery procedures.
+
+### Available Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/setup.sh` | Full installation (binary, dirs, systemd service) |
+| `scripts/install.sh` | Apply tamper-proof hardening (chattr +i, sudoers deny) |
+| `scripts/configure.sh` | Interactive config wizard |
+| `scripts/uninstall.sh` | Reverse hardening + remove (requires admin key) |
+| `scripts/setup-auditd.sh` | Install auditd rules |
+| `scripts/setup-audit-rules.sh` | Configure specific audit watch rules |
+| `scripts/setup-iptables.sh` | Configure iptables logging |
+| `scripts/setup-apparmor.sh` | Load AppArmor profiles |
+| `scripts/setup-falco.sh` | Install/configure Falco |
+| `scripts/setup-samhain.sh` | Install/configure Samhain |
+| `scripts/setup-slack.sh` | Configure Slack webhooks |
+| `scripts/setup-sudoers-deny.sh` | Sudoers deny rules for agent |
+| `scripts/build-preload.sh` | Compile libclawguard.so |
+| `scripts/enable-preload.sh` | Activate LD_PRELOAD guard |
+| `scripts/sync-secureclaw.sh` | Update SecureClaw pattern databases |
+| `scripts/oneshot-install.sh` | Single-command install from GitHub |
+
+---
+
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Who It's For](#who-its-for)
+- [How ClawTower Fits](#how-clawtower-fits)
+- [Features](#features)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [Architecture Overview](#architecture-overview)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Who It's For
 
@@ -62,10 +148,6 @@ AI agent security isn't one layer — it's a stack. Different tools cover differ
 - An agent's behavior changes after a context window is poisoned
 - A legitimate tool (`curl`, `scp`) is used for unauthorized data transfer
 - Someone tampers with the agent's identity or configuration files
-
-Marketplace scanners like VirusTotal are great at catching known malware signatures. ClawTower catches the *unknown* — novel exfiltration, privilege escalation, reverse shells, and tamper attempts — through behavioral analysis and policy enforcement.
-
-**They're complementary.** Use both. Gate your marketplace; guard your machine.
 
 ## Features
 
@@ -110,86 +192,6 @@ Allowlist or blocklist mode for outbound connections. Supports wildcard suffix m
 
 ### 📝 Log Tamper Detection
 Monitors audit log files for evidence destruction: missing files, inode replacement (distinguishing log rotation), and file truncation. Critical alerts on any suspicious change.
-
-## Quick Start
-
-### One-line Install
-
-```bash
-curl -sSL https://raw.githubusercontent.com/coltz108/ClawTower/main/scripts/oneshot-install.sh | sudo bash
-```
-
-### Build from Source
-
-```bash
-git clone https://github.com/coltz108/ClawTower.git
-cd ClawTower
-cargo build --release
-
-# Install binaries
-sudo install -m 755 target/release/clawtower /usr/local/bin/clawtower
-sudo install -m 755 target/release/clawsudo /usr/local/bin/clawsudo
-
-# Make immutable (the "swallowed key")
-sudo chattr +i /usr/local/bin/clawtower
-```
-
-### Initial Setup
-
-```bash
-# 1. Create config directory and copy config
-sudo mkdir -p /etc/clawtower
-sudo cp config.toml /etc/clawtower/config.toml
-sudo nano /etc/clawtower/config.toml    # Edit watched_users, slack webhook, etc.
-
-# 2. Run the setup script (installs binary, creates dirs, sets up systemd)
-sudo scripts/setup.sh
-
-# 3. Admin key is auto-generated on first run — save it!
-#    It is displayed ONCE in journalctl output and stored only as an Argon2 hash
-```
-
-**Recommended hardening** (run after setup):
-
-```bash
-sudo scripts/setup-auditd.sh        # Syscall monitoring — highly recommended
-sudo scripts/setup-sudoers-deny.sh  # Block agent from stopping ClawTower
-sudo scripts/setup-slack.sh         # Slack alerts
-```
-
-**Optional integrations** (add as needed):
-
-```bash
-sudo scripts/setup-iptables.sh      # Network alert logging
-sudo scripts/setup-apparmor.sh      # AppArmor confinement
-sudo scripts/build-preload.sh       # Build LD_PRELOAD guard library
-sudo scripts/enable-preload.sh      # Activate LD_PRELOAD guard
-sudo scripts/setup-falco.sh         # Falco eBPF monitoring
-sudo scripts/setup-samhain.sh       # Samhain file integrity
-```
-
-> 📖 **Full installation guide:** See [`docs/INSTALL.md`](docs/INSTALL.md) for prerequisites, hardening details, and recovery procedures.
-
-### Available Scripts
-
-| Script | Purpose |
-|--------|---------|
-| `scripts/setup.sh` | Full installation (binary, dirs, systemd service) |
-| `scripts/install.sh` | Apply tamper-proof hardening (chattr +i, sudoers deny) |
-| `scripts/configure.sh` | Interactive config wizard |
-| `scripts/uninstall.sh` | Reverse hardening + remove (requires admin key) |
-| `scripts/setup-auditd.sh` | Install auditd rules |
-| `scripts/setup-audit-rules.sh` | Configure specific audit watch rules |
-| `scripts/setup-iptables.sh` | Configure iptables logging |
-| `scripts/setup-apparmor.sh` | Load AppArmor profiles |
-| `scripts/setup-falco.sh` | Install/configure Falco |
-| `scripts/setup-samhain.sh` | Install/configure Samhain |
-| `scripts/setup-slack.sh` | Configure Slack webhooks |
-| `scripts/setup-sudoers-deny.sh` | Sudoers deny rules for agent |
-| `scripts/build-preload.sh` | Compile libclawguard.so |
-| `scripts/enable-preload.sh` | Activate LD_PRELOAD guard |
-| `scripts/sync-secureclaw.sh` | Update SecureClaw pattern databases |
-| `scripts/oneshot-install.sh` | Single-command install from GitHub |
 
 ## Configuration
 
