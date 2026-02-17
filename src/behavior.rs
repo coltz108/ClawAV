@@ -67,6 +67,7 @@ const AGENT_SENSITIVE_PATHS: &[&str] = &[
 ];
 
 /// Wrapper binaries that execute other commands (used for stealth detection)
+#[allow(dead_code)]
 const WRAPPER_BINARIES: &[&str] = &["script", "stdbuf", "timeout", "env", "nice", "nohup"];
 
 /// Sensitive files that should never be written by the watched user
@@ -2075,7 +2076,7 @@ mod tests {
         // /etc/passwd is in CRITICAL_WRITE_PATHS but NOT CRITICAL_READ_PATHS
         // cat reads, so check if it's caught
         let event = make_exec_event(&["cat", "/etc/passwd"]);
-        let result = classify_behavior(&event);
+        let _result = classify_behavior(&event);
         // /etc/passwd is not in CRITICAL_READ_PATHS - only in CRITICAL_WRITE_PATHS
         // So reading it via cat should NOT be flagged by the read path check
         // This is actually reasonable - /etc/passwd is world-readable

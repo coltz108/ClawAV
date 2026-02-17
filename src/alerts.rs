@@ -126,6 +126,7 @@ impl AlertStore {
     }
 
     /// Count alerts matching a given source string.
+    #[allow(dead_code)]
     pub fn count_by_source(&self, source: &str) -> usize {
         self.alerts.iter().filter(|a| a.source == source).count()
     }
