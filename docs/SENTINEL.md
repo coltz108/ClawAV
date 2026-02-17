@@ -8,14 +8,18 @@ ClawTower's **Sentinel** is a real-time file watcher built on Linux inotify. It 
 
 1. [What the Sentinel Does](#what-the-sentinel-does)
 2. [How It Works — The Event Pipeline](#how-it-works)
-3. [Protected vs Watched Policies](#protected-vs-watched-policies)
-4. [Shadow Copies](#shadow-copies)
-5. [Quarantine](#quarantine)
-6. [SecureClaw Integration](#secureclaw-integration)
-7. [Log Rotation Detection](#log-rotation-detection)
-8. [Configuration](#configuration)
-9. [Relationship to Cognitive Monitoring](#relationship-to-cognitive-monitoring)
-10. [Troubleshooting](#troubleshooting)
+3. [File Deletion Auto-Restore](#file-deletion-auto-restore)
+4. [Persistence-Critical Detection](#persistence-critical-detection)
+5. [Protected vs Watched Policies](#protected-vs-watched-policies)
+6. [Shadow Copies](#shadow-copies)
+7. [Quarantine](#quarantine)
+8. [SecureClaw Integration](#secureclaw-integration)
+9. [Content Scan Exclusions](#content-scan-exclusions)
+10. [Scan Deduplication](#scan-deduplication)
+11. [Log Rotation Detection](#log-rotation-detection)
+12. [Configuration](#configuration)
+13. [Relationship to Cognitive Monitoring](#relationship-to-cognitive-monitoring)
+14. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -90,6 +94,54 @@ SecureClaw content scan (if enabled)
 8. **Action** — based on policy and scan results:
    - **Quarantine + Restore**: the modified file is copied to quarantine, then the shadow copy overwrites it back to its previous state.
    - **Update shadow**: the shadow copy is replaced with the new content.
+
+---
+
+## File Deletion Auto-Restore
+
+When a protected or watched file is deleted, the Sentinel responds immediately — deletions bypass the normal debounce window.
+
+### How It Works
+
+The `handle_deletion()` method in `sentinel.rs` runs whenever a `Remove` event is received from inotify:
+
+1. **Immediate response** — deletion events skip the debounce buffer entirely, since there's no benefit to waiting.
+2. **Verify file is actually gone** — if the file still exists on disk (e.g., the event was stale), the handler no-ops.
+3. **Restore from shadow** — if a shadow copy exists for the deleted file:
+   - Parent directories are created if they were also removed
+   - The shadow copy is written back to the original path
+   - A **Critical** alert fires: `"File deleted and restored from shadow: {path}"`
+4. **No shadow available** — if there's no shadow copy (e.g., the file was added to watch_paths but never initialized), a **Critical** alert fires noting that restore is impossible.
+
+### Why This Matters
+
+File deletion is a common attack vector — an agent might delete `SOUL.md` to remove behavioral constraints, or delete `AGENTS.md` to disable safety rules. Auto-restore ensures protected files reappear within milliseconds.
+
+---
+
+## Persistence-Critical Detection
+
+The Sentinel automatically flags certain file changes as **persistence attempts** — modifications to locations commonly used to survive reboots or gain recurring execution.
+
+### Detected Patterns
+
+The `is_persistence_critical()` method in `sentinel.rs` checks every file change event against these patterns:
+
+| Location | File Pattern | Why It's Suspicious |
+|---|---|---|
+| `~/.config/systemd/user/` | `.service` or `.timer` files | User-level systemd units execute on login/boot |
+| `~/.config/autostart/` | `.desktop` files | XDG autostart entries run on desktop session start |
+| `.git/hooks/` | Any file except `.sample` | Git hooks execute automatically on git operations |
+
+### Alert Behavior
+
+When a persistence-critical path is detected:
+
+- Alert level is forced to **Critical** regardless of the file's configured policy
+- The alert message is prefixed with `"PERSISTENCE:"` for easy filtering
+- Processing continues normally (quarantine/restore still applies based on policy and scan results)
+
+This catches scenarios where an agent creates a systemd timer to phone home, installs a git hook to inject commands, or sets up an autostart entry for a reverse shell.
 
 ---
 
@@ -216,6 +268,65 @@ SecureClaw uses curated pattern databases that detect:
 - Known malicious payloads
 
 These are loaded and managed by the `SecureClawEngine` — see [SECURITY-SCANNERS.md](SECURITY-SCANNERS.md#secureclaw-pattern-engine) for details on pattern databases and management.
+
+---
+
+## Content Scan Exclusions
+
+Some watched paths contain sensitive data (API keys, auth tokens) that would trigger SecureClaw's credential-detection patterns on every change. Two config fields let you exclude paths from content scanning while still tracking changes.
+
+### Glob-Based Exclusions
+
+The `content_scan_excludes` config field accepts glob patterns matched via `glob::Pattern`:
+
+```toml
+[sentinel]
+content_scan_excludes = [
+    "**/.openclaw/**/auth-profiles.json",
+    "**/secrets/*.env",
+]
+```
+
+### Substring-Based Exclusions
+
+The `exclude_content_scan` config field uses simple substring matching — if the path contains the string, content scanning is skipped:
+
+```toml
+[sentinel]
+exclude_content_scan = [
+    "superpowers/skills",
+    ".openclaw/workspace/edge_whisper",
+]
+```
+
+### What Gets Skipped
+
+Only SecureClaw content pattern matching is bypassed. Everything else still applies:
+
+- ✅ Change detection (inotify events still fire)
+- ✅ Diff generation (shadow comparison still happens)
+- ✅ Policy enforcement (protected files still quarantine+restore)
+- ❌ SecureClaw pattern scan (skipped for excluded paths)
+
+This prevents false positives from files that legitimately contain credential-like strings.
+
+---
+
+## Scan Deduplication
+
+Periodic security scans (run by `scanner.rs`) can report the same finding every cycle, generating noise. The Sentinel deduplicates scan results to suppress repeated identical findings.
+
+### How It Works
+
+In `run_periodic_scans()`, each scan result is keyed as `"{category}:{status}"`. A `HashMap<String, Instant>` tracks when each key was last reported:
+
+- **Same key within 24 hours** — suppressed (not forwarded to the alert pipeline)
+- **Status changes** — fire immediately, because the status is part of the key (e.g., `"ssh_config:WARN"` → `"ssh_config:CRIT"` is a new key)
+- **After 24 hours** — the finding is reported again, resetting the timer
+
+### Effect
+
+This dramatically reduces alert volume from scanners that repeatedly report stable conditions (e.g., "SSH password auth is enabled" every 5 minutes). Genuine state transitions always surface immediately.
 
 ---
 

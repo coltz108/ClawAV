@@ -33,6 +33,40 @@ bin/clawsudo.rs        (standalone binary, own policy loader)
 src/preload/interpose.c  (standalone .so, no Rust dependency)
 ```
 
+## Configuration Layering
+
+ClawTower's configuration is assembled from multiple files, merged in a deterministic order.
+
+### Config Loading
+
+```
+config.toml  →  config.d/*.toml (alphabetical)  →  merge_toml()  →  Config struct
+```
+
+1. **Base config** — `/etc/clawtower/config.toml` is loaded first
+2. **Overlays** — all `*.toml` files in `/etc/clawtower/config.d/` are loaded in alphabetical order
+3. **Merge** — each overlay is merged into the base via `merge_toml()`:
+   - **Scalars** — overlay value replaces base value
+   - **Lists** — use `_add` suffix to append items, `_remove` suffix to remove items (original key is untouched if neither is present)
+   - **Tables** — merged recursively (nested keys are individually replaced/added)
+
+**Config protection:** `config.toml` is owned `root:root 644`. Since ClawTower monitors a non-root agent, the agent cannot modify root-owned config files — file permissions are sufficient protection without `chattr +i`.
+
+### Policy Loading
+
+```
+default.yaml  →  other *.yaml (alphabetical)  →  name-based merge  →  PolicyEngine
+```
+
+1. **Defaults** — `default.yaml` is loaded first, providing baseline rules
+2. **User rules** — remaining `*.yaml` files are loaded alphabetically
+3. **Merge** — rules are matched by name:
+   - Same name → user rule **replaces** default rule entirely
+   - `enabled: false` → disables a default rule by name
+   - New names → added alongside defaults
+
+---
+
 ## Data Flow — Alert Pipeline
 
 ```
@@ -143,7 +177,7 @@ Any tampering (modified message, deleted entry, reordered entries) breaks the ch
 | **aggregator** | Alert fatigue | Dedup + rate limiting without suppressing criticals |
 | **audit chain** | Log tampering | SHA-256 hash chain, append-only |
 | **Slack webhook** | Agent silencing alerts | Independent webhook, not routed through agent |
-| **immutable files** | Binary/config modification | `chattr +i` + capability stripping |
+| **file permissions** | Config modification | Root-owned files (644) inaccessible to monitored agent |
 | **AppArmor** | Agent accessing watchdog | MAC profile denying `openclaw` user access |
 | **systemd hardening** | Service killing | `Restart=always`, `WatchdogSec=30`, sudoers deny |
 | **DLP proxy** | Secret leakage via API | Regex scanning of outbound LLM requests |
