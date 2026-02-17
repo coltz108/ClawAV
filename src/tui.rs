@@ -397,6 +397,36 @@ impl App {
     }
 
     fn handle_config_key(&mut self, key: KeyCode, modifiers: KeyModifiers) {
+        // Handle dropdown if active
+        if let Some(ref mut dropdown) = self.config_dropdown {
+            match key {
+                KeyCode::Up => {
+                    dropdown.selected = dropdown.selected.saturating_sub(1);
+                }
+                KeyCode::Down => {
+                    if dropdown.selected < dropdown.options.len().saturating_sub(1) {
+                        dropdown.selected += 1;
+                    }
+                }
+                KeyCode::Enter => {
+                    let value = dropdown.options[dropdown.selected].clone();
+                    let field_index = dropdown.field_index;
+                    self.config_dropdown = None;
+                    if let Some(ref mut config) = self.config {
+                        let section = &self.config_sections[self.config_selected_section];
+                        let field_name = &self.config_fields[field_index].name;
+                        apply_field_to_config(config, section, field_name, &value);
+                        self.refresh_fields();
+                    }
+                }
+                KeyCode::Esc => {
+                    self.config_dropdown = None;
+                }
+                _ => {}
+            }
+            return;
+        }
+
         if self.config_editing {
             // Handle editing mode
             match key {
@@ -407,7 +437,7 @@ impl App {
 
                     let valid = match &field.field_type {
                         FieldType::Number => value.parse::<u64>().is_ok(),
-                        FieldType::Bool => value == "true" || value == "false",
+                        FieldType::Enum(ref options) => options.contains(&value.to_string()),
                         FieldType::Text => true,
                         FieldType::Action(_) => true,
                     };
@@ -426,7 +456,7 @@ impl App {
                             "❌ Invalid {}: \"{}\"",
                             match &field.field_type {
                                 FieldType::Number => "number",
-                                FieldType::Bool => "boolean (true/false)",
+                                FieldType::Enum(_) => "selection",
                                 _ => "value",
                             },
                             value
@@ -517,13 +547,14 @@ impl App {
                             if !self.config_fields.is_empty() {
                                 let field = &self.config_fields[self.config_selected_field];
                                 match &field.field_type {
-                                    FieldType::Bool => {
-                                        if let Some(ref mut config) = self.config {
-                                            let section = &self.config_sections[self.config_selected_section];
-                                            let new_value = if field.value == "true" { "false" } else { "true" };
-                                            apply_field_to_config(config, section, &field.name, new_value);
-                                            self.refresh_fields();
-                                        }
+                                    FieldType::Enum(ref options) => {
+                                        let current = &field.value;
+                                        let selected = options.iter().position(|o| o == current).unwrap_or(0);
+                                        self.config_dropdown = Some(DropdownState {
+                                            field_index: self.config_selected_field,
+                                            options: options.clone(),
+                                            selected,
+                                        });
                                     }
                                     FieldType::Action(action) => {
                                         let action = action.clone();
