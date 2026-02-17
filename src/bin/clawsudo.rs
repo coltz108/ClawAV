@@ -331,6 +331,23 @@ fn main() -> ExitCode {
         .to_string();
     let full_cmd = args.join(" ");
 
+    // Check if clawsudo is locked by the response engine
+    if Path::new("/var/run/clawtower/clawsudo.locked").exists() {
+        eprintln!("🔴 clawsudo is locked by ClawTower response engine. All sudo requests denied.");
+        eprintln!("   Action blocked by ClawTower security policy. Contact administrator.");
+        log_line("DENIED-LOCKED", &full_cmd);
+        if let Some(ref url) = load_webhook_url() {
+            send_slack_sync(
+                url,
+                &format!(
+                    "🔴 clawsudo locked — denied: `{}` (response engine lockdown active)",
+                    full_cmd
+                ),
+            );
+        }
+        return ExitCode::from(EXIT_DENIED);
+    }
+
     // Load policies
     let policy_dirs: Vec<&Path> = vec![
         Path::new("/etc/clawtower/policies/"),
