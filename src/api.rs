@@ -17,9 +17,10 @@ use std::time::Instant;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server, StatusCode};
 use serde::Serialize;
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 
 use crate::alerts::{Alert, Severity};
+use crate::response::{PendingStatus, ResponseRequest, SharedPendingActions};
 
 /// Thread-safe ring buffer of alerts for the API.
 ///
@@ -140,6 +141,8 @@ async fn handle(
     store: SharedAlertStore,
     start_time: Instant,
     auth_token: Arc<String>,
+    pending_store: SharedPendingActions,
+    response_tx: Option<Arc<mpsc::Sender<ResponseRequest>>>,
 ) -> Result<Response<Body>, Infallible> {
     // Check bearer token auth if configured
     if !auth_token.is_empty() {
@@ -167,6 +170,7 @@ async fn handle(
 <li><a href="/api/status">/api/status</a> — System status</li>
 <li><a href="/api/alerts">/api/alerts</a> — Recent alerts</li>
 <li><a href="/api/security">/api/security</a> — Security posture</li>
+<li><a href="/api/pending">/api/pending</a> — Pending approval actions</li>
 </ul></body></html>"#;
             Response::builder()
                 .header("Content-Type", "text/html")
@@ -229,6 +233,55 @@ async fn handle(
             };
             json_response(StatusCode::OK, serde_json::to_string(&resp).unwrap())
         }
+        "/api/pending" => {
+            let pending = pending_store.lock().await;
+            let items: Vec<serde_json::Value> = pending.iter().map(|a| {
+                serde_json::json!({
+                    "id": a.id,
+                    "threat_source": a.threat_source,
+                    "threat_message": a.threat_message,
+                    "severity": format!("{}", a.severity),
+                    "mode": a.mode,
+                    "actions": a.actions.iter().map(|act| act.to_string()).collect::<Vec<String>>(),
+                    "playbook": a.playbook,
+                    "status": a.status,
+                    "age_seconds": a.created_at.elapsed().as_secs(),
+                })
+            }).collect();
+            json_response(StatusCode::OK, serde_json::to_string(&items).unwrap())
+        }
+        path if path.starts_with("/api/pending/") && (path.ends_with("/approve") || path.ends_with("/deny")) => {
+            if req.method() != &hyper::Method::POST {
+                json_response(StatusCode::METHOD_NOT_ALLOWED, r#"{"error":"POST required"}"#.to_string())
+            } else if let Some(ref resp_tx) = response_tx {
+                let parts: Vec<&str> = path.split('/').collect();
+                if parts.len() == 5 {
+                    let id = parts[3].to_string();
+                    let approved = parts[4] == "approve";
+
+                    let body_bytes = hyper::body::to_bytes(req.into_body()).await.unwrap_or_default();
+                    let body_json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap_or_default();
+                    let message = body_json.get("message").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    let by = body_json.get("by").and_then(|v| v.as_str()).unwrap_or("api_user").to_string();
+
+                    let resolve = ResponseRequest::Resolve {
+                        id: id.clone(),
+                        approved,
+                        by,
+                        message,
+                        surface: "api".to_string(),
+                    };
+                    match resp_tx.send(resolve).await {
+                        Ok(_) => json_response(StatusCode::OK, format!(r#"{{"id":"{}","result":"{}"}}"#, id, if approved { "approved" } else { "denied" })),
+                        Err(_) => json_response(StatusCode::INTERNAL_SERVER_ERROR, r#"{"error":"response engine unavailable"}"#.to_string()),
+                    }
+                } else {
+                    json_response(StatusCode::BAD_REQUEST, r#"{"error":"invalid path"}"#.to_string())
+                }
+            } else {
+                json_response(StatusCode::SERVICE_UNAVAILABLE, r#"{"error":"response engine not enabled"}"#.to_string())
+            }
+        }
         _ => {
             let err = ErrorResponse {
                 error: "not found".to_string(),
@@ -242,17 +295,27 @@ async fn handle(
 /// Start the HTTP API server on the given bind address and port.
 ///
 /// Runs indefinitely, serving requests against the shared alert store.
-pub async fn run_api_server(bind: &str, port: u16, store: SharedAlertStore, auth_token: String) -> anyhow::Result<()> {
+pub async fn run_api_server(
+    bind: &str,
+    port: u16,
+    store: SharedAlertStore,
+    auth_token: String,
+    pending_store: SharedPendingActions,
+    response_tx: Option<mpsc::Sender<ResponseRequest>>,
+) -> anyhow::Result<()> {
     let addr: SocketAddr = format!("{}:{}", bind, port).parse()?;
     let start_time = Instant::now();
     let auth_token = Arc::new(auth_token);
+    let response_tx = response_tx.map(Arc::new);
 
     let make_svc = make_service_fn(move |_conn| {
         let store = store.clone();
         let auth_token = auth_token.clone();
+        let pending_store = pending_store.clone();
+        let response_tx = response_tx.clone();
         async move {
             Ok::<_, Infallible>(service_fn(move |req| {
-                handle(req, store.clone(), start_time, auth_token.clone())
+                handle(req, store.clone(), start_time, auth_token.clone(), pending_store.clone(), response_tx.clone())
             }))
         }
     });

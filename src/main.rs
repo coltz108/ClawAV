@@ -571,8 +571,10 @@ async fn async_main() -> Result<()> {
         let bind = config.api.bind.clone();
         let port = config.api.port;
         let auth_token = config.api.auth_token.clone();
+        let api_pending = pending_store.clone();
+        let api_resp_tx = response_tx.clone();
         tokio::spawn(async move {
-            if let Err(e) = api::run_api_server(&bind, port, store, auth_token).await {
+            if let Err(e) = api::run_api_server(&bind, port, store, auth_token, api_pending, api_resp_tx).await {
                 eprintln!("API server error: {}", e);
             }
         });
