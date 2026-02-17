@@ -122,6 +122,12 @@ pub struct SudoPopup {
     pub status: SudoStatus,
 }
 
+impl Drop for SudoPopup {
+    fn drop(&mut self) {
+        self.password.zeroize();
+    }
+}
+
 /// Progress state of a sudo authentication attempt.
 pub enum SudoStatus {
     /// Waiting for user to type password.
@@ -189,9 +195,11 @@ impl App {
     /// Rebuild the field list for the currently selected config section.
     pub fn refresh_fields(&mut self) {
         if let Some(ref config) = self.config {
+            // Ensure tool status is cached
+            let _ = self.is_tool_installed("falco");
+            let _ = self.is_tool_installed("samhain");
             let section = &self.config_sections[self.config_selected_section];
-            self.config_fields = get_section_fields(config, section);
-            // Reset field selection if necessary
+            self.config_fields = get_section_fields(config, section, &self.tool_status_cache);
             if self.config_selected_field >= self.config_fields.len() && !self.config_fields.is_empty() {
                 self.config_selected_field = 0;
             }
@@ -482,6 +490,7 @@ impl App {
                 if out.contains("CONFIG_SAVED") {
                     self.config_saved_message = Some("✅ Saved!".to_string());
                 } else if output.status.success() && !out.contains("INSTALL_FAILED") {
+                    self.invalidate_tool_cache();
                     self.config_saved_message = Some("✅ Installed! Refresh with Left/Right.".to_string());
                 } else if err.contains("incorrect password") || err.contains("Sorry, try again") {
                     self.config_saved_message = Some("❌ Wrong password".to_string());
@@ -501,7 +510,7 @@ fn nix_is_root() -> bool {
     unsafe { libc::getuid() == 0 }
 }
 
-fn get_section_fields(config: &Config, section: &str) -> Vec<ConfigField> {
+fn get_section_fields(config: &Config, section: &str, tool_cache: &HashMap<String, bool>) -> Vec<ConfigField> {
     match section {
         "general" => vec![
             ConfigField {
@@ -608,11 +617,7 @@ fn get_section_fields(config: &Config, section: &str) -> Vec<ConfigField> {
             },
         ],
         "falco" => {
-            let falco_installed = std::process::Command::new("which")
-                .arg("falco")
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false);
+            let falco_installed = tool_cache.get("falco").copied().unwrap_or(false);
             let mut fields = vec![
                 ConfigField {
                     name: "enabled".to_string(),
@@ -644,11 +649,7 @@ fn get_section_fields(config: &Config, section: &str) -> Vec<ConfigField> {
             fields
         },
         "samhain" => {
-            let samhain_installed = std::process::Command::new("which")
-                .arg("samhain")
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false);
+            let samhain_installed = tool_cache.get("samhain").copied().unwrap_or(false);
             let mut fields = vec![
                 ConfigField {
                     name: "enabled".to_string(),
