@@ -155,7 +155,7 @@ cs_check "cp /etc/shadow to /tmp" "allow" "$CS cp /etc/shadow /tmp/rl8_shadow.tx
 cs_check "docker mount host root" "allow" "timeout 15 $CS docker run --rm -v /:/host:ro alpine cat /host/etc/hostname"
 cs_check "docker --privileged" "allow" "timeout 15 $CS docker run --rm --privileged alpine id"
 cs_check "docker mount ClawTower logs" "allow" "timeout 15 $CS docker run --rm -v /var/log/clawtower:/l:ro alpine cat /l/alerts.jsonl"
-cs_check "systemctl restart clawtower" "allow" "$CS systemctl restart clawtower"
+cs_check "systemctl restart clawtower" "allow" "timeout 15 $CS systemctl restart clawtower"
 cs_check "sed -n p /etc/shadow (read)" "allow" "$CS sed -n p /etc/shadow"
 
 rl_summary

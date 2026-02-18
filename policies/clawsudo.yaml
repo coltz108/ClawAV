@@ -26,6 +26,20 @@ rules:
     action: critical
     enforcement: deny
 
+  - name: "deny-security-service-tamper"
+    description: "Block stop/restart/disable of security-critical services"
+    match:
+      command_contains:
+        - "systemctl stop clawtower"
+        - "systemctl restart clawtower"
+        - "systemctl disable clawtower"
+        - "systemctl mask clawtower"
+        - "systemctl stop auditd"
+        - "systemctl disable auditd"
+        - "systemctl mask auditd"
+    action: critical
+    enforcement: deny
+
   - name: "deny-firewall-disable"
     match:
       command_contains:

@@ -668,6 +668,28 @@ mod tests {
     }
 
     #[test]
+    fn test_systemctl_stop_clawtower_denied() {
+        let rules = load_test_rules();
+        let result = evaluate(&rules, "systemctl", "systemctl stop clawtower").unwrap();
+        assert_eq!(result.enforcement, Enforcement::Deny);
+        assert_eq!(result.rule_name, "deny-security-service-tamper");
+    }
+
+    #[test]
+    fn test_systemctl_restart_clawtower_denied() {
+        let rules = load_test_rules();
+        let result = evaluate(&rules, "systemctl", "systemctl restart clawtower").unwrap();
+        assert_eq!(result.enforcement, Enforcement::Deny);
+    }
+
+    #[test]
+    fn test_systemctl_stop_auditd_denied() {
+        let rules = load_test_rules();
+        let result = evaluate(&rules, "systemctl", "systemctl stop auditd").unwrap();
+        assert_eq!(result.enforcement, Enforcement::Deny);
+    }
+
+    #[test]
     fn test_unknown_command_ambiguous() {
         let rules = load_test_rules();
         let result = evaluate(&rules, "htop", "htop");
