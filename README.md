@@ -12,13 +12,11 @@
 
 ---
 
-Autonomous AI agents operate with real system access — executing commands, editing files, and managing infrastructure. But who watches the watcher? Traditional security tools weren't designed for a world where the *user* is an AI that could, intentionally or through prompt injection, disable its own monitoring.
+AI agents now run shell commands, edit files, call APIs, and sometimes use `sudo` on real infrastructure. Once they're executing, visibility drops fast — prompt guardrails and container boundaries don't tell you what's actually happening at the OS level.
 
-ClawTower solves this with the **"swallowed key" pattern**: the agent (or its operator) installs ClawTower, but once running, the agent *cannot* modify, disable, or uninstall it. The binary is immutable (`chattr +i`), the service is protected by systemd, and the admin key is hashed and stored outside the agent's reach. Every attempt to tamper is logged and alerted on.
+ClawTower monitors at the kernel boundary (auditd, inotify, network policy) and is designed so the agent being watched **can't turn it off**. The binary is immutable (`chattr +i`), the admin key is Argon2-hashed and never stored, and every tamper attempt is logged and alerted on. This is the **"swallowed key" pattern**: the thing being watched can't fire the security guard.
 
-Under the hood, ClawTower provides real-time file integrity monitoring via inotify, behavioral analysis of syscalls through auditd, threat pattern detection across file contents, and 30+ periodic security scanners — all feeding into a hash-chained audit trail that's cryptographically tamper-evident. Think of it as an immune system for machines running AI agents.
-
-Marketplace scanners like VirusTotal are great at catching known malware signatures. ClawTower catches the *unknown* — novel exfiltration, privilege escalation, reverse shells, and tamper attempts — through behavioral analysis and policy enforcement. **They're complementary.** Use both.
+> **Early-stage project.** ClawTower works and is battle-tested against its own adversarial pentest suite, but it hasn't been widely deployed yet. Expect rough edges. [Testers and contributors welcome.](CONTRIBUTING.md)
 
 ## Quick Start
 
@@ -107,79 +105,47 @@ sudo scripts/setup-samhain.sh       # Samhain file integrity
 
 ---
 
-## Who It's For
+## Agent-Agnostic
 
-ClawTower is **agent-agnostic**. It works at the OS level — auditd, AppArmor, syscall interception — so it doesn't need hooks into your agent's code. If it runs on Linux, ClawTower can watch it:
+ClawTower works at the OS level — it doesn't hook into your agent's code or require SDK integration. If an agent runs on Linux under a user account, ClawTower can monitor that UID:
 
-- **[OpenClaw](https://openclaw.ai)** agents and ClawHub skills
-- **Claude Code**, **Codex CLI**, **Aider**, **Continue**
-- **Devin**, **SWE-agent**, and other autonomous coding agents
-- **Custom agents** built on LangChain, CrewAI, AutoGen, or raw API calls
+- OpenClaw, Nanobot, SuperAGI, Goose, memU
+- Claude Code, Codex CLI, Aider, Continue
+- Devin, SWE-agent, and other autonomous coding agents
+- Custom agents built on LangChain, CrewAI, AutoGen, or raw API calls
 - Any process running under a monitored user account
 
-No SDK integration required. Install ClawTower, point it at the user your agent runs as, and it starts watching.
+Point it at the UID your agent runs as and it starts watching.
 
-## How ClawTower Fits
+## Where ClawTower Fits
 
-AI agent security isn't one layer — it's a stack. Different tools cover different stages:
+ClawTower is **not** a replacement for container isolation. It's the other half of the stack.
 
-| Layer | When | What | Examples |
-|-------|------|------|----------|
-| **Marketplace scanning** | Pre-install | Static analysis of skill/plugin packages | OpenClaw + VirusTotal, npm audit |
-| **Code review** | Pre-execution | LLM-powered behavioral analysis of code | OpenClaw Code Insight, manual review |
-| **Runtime monitoring** | Continuous | Watching what agents *actually do* on the machine | **ClawTower** |
-| **Network policy** | Continuous | Controlling outbound connections | **ClawTower** netpolicy, firewall rules |
+If tools like NanoClaw are your prevention layer (sandbox the agent so it can't cause damage), ClawTower is your detection-and-forensics layer (watch what the agent actually does, alert, and provide a tamper-evident trail). **Contain what you can, monitor what you must.** You want both.
 
-**ClawTower operates at the runtime layer** — the part that catches what static scanning can't:
+ClawTower operates at the runtime layer — the part that catches what static scanning and sandboxing can't:
 
-- A skill passes VirusTotal but uses prompt injection to exfiltrate data at runtime
+- A skill passes VirusTotal but exfiltrates data through allowed network paths at runtime
 - An agent's behavior changes after a context window is poisoned
 - A legitimate tool (`curl`, `scp`) is used for unauthorized data transfer
 - Someone tampers with the agent's identity or configuration files
 
-## Features
+## What It Monitors
 
-### 🛡️ Real-time File Sentinel
-Inotify-based file watcher with configurable paths and policies. Detects creates, modifications, and deletions instantly. Supports **protected** (alert + quarantine + restore from shadow copy) and **watched** (alert + diff) policies. Content scanning via BarnacleDefense on every change.
-
-### 🔒 Cognitive File Protection
-Dedicated protection for AI identity files — `SOUL.md`, `AGENTS.md`, `IDENTITY.md`, `TOOLS.md`, `USER.md`, `HEARTBEAT.md`. SHA-256 baselines are computed at startup; any modification triggers a CRITICAL alert. Memory files like `MEMORY.md` are tracked with diffs.
-
-### 🔍 BarnacleDefense Pattern Engine
-Loads pattern databases for prompt injection, dangerous commands, privacy violations, and supply-chain IOCs. Regex-compiled at startup and applied to file contents in real-time. Pluggable vendor directory for community-maintained rulesets.
-
-### 📊 30+ Security Scanners
-Periodic scans covering firewall status (UFW), auditd configuration, SSH hardening, Docker security, kernel parameters, open ports, world-writable files, SUID binaries, cognitive file integrity, crontab auditing, and more. Configurable interval.
-
-### 🔗 Hash-Chained Audit Trail
-Every alert is appended to a sequential, SHA-256 hash-chained log. Each entry includes the hash of the previous entry, making retroactive tampering detectable. Chain integrity is verifiable at any time.
-
-### 🖥️ Terminal UI
-Full-featured Ratatui dashboard with six tabbed views: Alerts (live feed), Network, Falco, FIM (Samhain), System status, and interactive Config editor. Navigate with keyboard shortcuts; edit config in-place.
-
-### 🔔 Slack Alerts
-Real-time notifications to Slack via webhook with severity filtering, failover to a backup webhook, and periodic health heartbeats. Configurable minimum alert level for Slack delivery.
-
-### 🔄 Auto-Updater
-Checks GitHub releases every 5 minutes (configurable). Downloads new binaries with **Ed25519 signature verification** against an embedded public key. Performs the `chattr -i` → replace → `chattr +i` → restart dance automatically.
-
-### 🚪 clawsudo
-A sudo proxy/gatekeeper binary. Every privileged command the agent runs goes through policy evaluation first. Rules can allow, deny, or alert on specific commands, arguments, and file access patterns. Denied commands return exit code 77.
-
-### 🧬 Behavioral Analysis & Auditd Monitoring
-Syscall-level monitoring through auditd with behavioral classification: data exfiltration, privilege escalation, security tampering, reconnaissance, and side-channel attacks. Distinguishes between agent and human actors via auid attribution. Includes LD_PRELOAD guard, build tool suppression, and safe-host allowlisting.
-
-### 🔑 API Key Vault Proxy
-Reverse proxy that maps virtual API keys to real ones — the agent never sees actual credentials. Provider-aware header rewriting for Anthropic and OpenAI. Built-in DLP (Data Loss Prevention) scanning blocks SSNs, AWS keys, and redacts credit card numbers from outbound requests.
-
-### 🌐 Network Policy Engine
-Allowlist or blocklist mode for outbound connections. Supports wildcard suffix matching (e.g., `*.anthropic.com`). Scans commands for embedded URLs and validates against policy.
-
-### 🔐 Admin Key System
-"Swallowed key" authentication: Argon2-hashed admin key generated once and never stored. Required for custom binary updates, uninstall, and admin socket commands. Rate limited (3 failures → 1 hour lockout). Unix domain socket for authenticated runtime commands (status, scan, pause, config-update).
-
-### 📝 Log Tamper Detection
-Monitors audit log files for evidence destruction: missing files, inode replacement (distinguishing log rotation), and file truncation. Critical alerts on any suspicious change.
+- **Behavioral detection** — syscall-level classification of exfiltration, privilege escalation, persistence, reconnaissance, side-channel attacks, and container escapes via auditd. Distinguishes agent vs. human actors.
+- **File integrity** — inotify-based sentinel with protected (quarantine + restore) and watched (diff + alert) policies. Content scanning on every change.
+- **Cognitive file protection** — SHA-256 baselines for AI identity files (`SOUL.md`, `AGENTS.md`, etc.). Any modification is a CRITICAL alert.
+- **Pattern engine** — regex databases for prompt injection, dangerous commands, privacy violations, and supply-chain IOCs. Compiled at startup, applied in real-time.
+- **30+ security scanners** — periodic checks covering firewall, auditd config, SSH hardening, Docker, SUID binaries, open ports, crontabs, and more.
+- **Hash-chained audit trail** — SHA-256 chain where each entry includes the previous hash. Retroactive edits are mathematically detectable.
+- **`clawsudo`** — sudo proxy/gatekeeper. Every privileged command goes through YAML policy evaluation first. Denied = exit code 77 + alert.
+- **Network policy** — allowlist/blocklist for outbound connections. Scans commands for embedded URLs.
+- **API key vault proxy** — maps virtual keys to real ones so the agent never sees actual credentials. Built-in DLP scanning.
+- **Terminal dashboard** — Ratatui TUI with tabbed views for alerts, network, FIM, system status, and config editing.
+- **Slack alerts** — webhook notifications with severity filtering, backup webhook failover, and periodic heartbeats.
+- **Auto-updater** — Ed25519-verified binary updates with the `chattr -i` → replace → `chattr +i` dance.
+- **Log tamper detection** — monitors audit logs for truncation, deletion, and inode replacement.
+- **Admin key system** — Argon2-hashed, generated once, never stored. Rate limited. Unix socket for authenticated runtime commands.
 
 ## Configuration
 
@@ -187,7 +153,7 @@ ClawTower uses a TOML config file (default: `/etc/clawtower/config.toml`). Key s
 
 ```toml
 [general]
-watched_users = ["1000"]        # Numeric UIDs to monitor (not usernames! find with: id -u openclaw)
+watched_users = ["1000"]        # Numeric UIDs to monitor (not usernames! find with: id -u <agent-user>)
 min_alert_level = "info"        # info | warning | critical
 log_file = "/var/log/clawtower/clawtower.log"
 
@@ -216,7 +182,7 @@ scan_content = true
 debounce_ms = 200
 
 [[sentinel.watch_paths]]
-path = "/home/openclaw/.openclaw/workspace/SOUL.md"
+path = "/home/agent/.workspace/SOUL.md"
 patterns = ["*"]
 policy = "protected"            # protected = restore + alert; watched = diff + alert
 
@@ -343,9 +309,9 @@ clawsudo apt-get update
 
 ## Contributing
 
-Contributions are welcome! Whether it's new detection rules, security scanners, bug fixes, or documentation improvements — we'd love your help.
+This is an early-stage project and contributions make a real difference right now — detection rules, scanners, integration guides, bug reports, or just telling me what's broken.
 
-See **[CONTRIBUTING.md](CONTRIBUTING.md)** for how to get started, including the CLA process, development guidelines, and areas where help is most needed.
+See **[CONTRIBUTING.md](CONTRIBUTING.md)** for how to get started, including the CLA process and development guidelines.
 
 ## License
 
@@ -359,8 +325,6 @@ AGPL-3.0 — see [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-If ClawTower is useful to you, consider giving it a star — it helps others find the project.
-
-**[Report a Bug](https://github.com/ClawTower/ClawTower/issues)** · **[Request a Feature](https://github.com/ClawTower/ClawTower/issues)** · **[Contributing Guide](CONTRIBUTING.md)**
+If you run AI agents on real infrastructure and want to help shape this, [get involved](CONTRIBUTING.md) or [file an issue](https://github.com/ClawTower/ClawTower/issues).
 
 </div>
