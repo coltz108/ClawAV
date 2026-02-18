@@ -34,7 +34,7 @@
 - `clawtower.service` → `clawtower.service`
 
 ### GitHub
-- `coltz108/ClawTower` → `coltz108/ClawTower`
+- `ClawTower/ClawTower` → `ClawTower/ClawTower`
 
 ## Execution Order
 

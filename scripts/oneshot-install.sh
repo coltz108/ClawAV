@@ -2,13 +2,13 @@
 # ClawTower Oneshot Installer — Interactive guided install
 #
 # Usage:
-#   curl -sSL https://raw.githubusercontent.com/coltz108/ClawTower/main/scripts/oneshot-install.sh | sudo bash
-#   curl -sSL https://raw.githubusercontent.com/coltz108/ClawTower/main/scripts/oneshot-install.sh | sudo bash -s -- --version v0.3.1b
-#   curl -sSL https://raw.githubusercontent.com/coltz108/ClawTower/main/scripts/oneshot-install.sh | sudo bash -s -- --update
+#   curl -sSL https://raw.githubusercontent.com/ClawTower/ClawTower/main/scripts/oneshot-install.sh | sudo bash
+#   curl -sSL https://raw.githubusercontent.com/ClawTower/ClawTower/main/scripts/oneshot-install.sh | sudo bash -s -- --version v0.3.1b
+#   curl -sSL https://raw.githubusercontent.com/ClawTower/ClawTower/main/scripts/oneshot-install.sh | sudo bash -s -- --update
 #
 set -euo pipefail
 
-REPO="coltz108/ClawTower"
+REPO="ClawTower/ClawTower"
 VERSION="latest"
 MODE="install"
 

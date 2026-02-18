@@ -218,13 +218,13 @@ This task is done by the main session (not a subagent) because it requires human
 
 **Step 1: J.R. renames GitHub repo**
 
-Go to https://github.com/coltz108/ClawTower → Settings → General → Repository name → `ClawTower` → Rename
+Go to https://github.com/ClawTower/ClawTower → Settings → General → Repository name → `ClawTower` → Rename
 
 **Step 2: Update git remote**
 
 ```bash
 cd /home/openclaw/.openclaw/workspace/projects/ClawTower
-git remote set-url origin git@github.com:coltz108/ClawTower.git
+git remote set-url origin git@github.com:ClawTower/ClawTower.git
 ```
 
 **Step 3: Push and tag**
@@ -334,22 +334,22 @@ Regenerate to match new section order. Remove the "What is ClawTower?" entry.
 
 **Step 3: Update badge URLs**
 
-Change all badge/link URLs from `coltz108/ClawTower` to `coltz108/ClawTower`:
+Change all badge/link URLs from `ClawTower/ClawTower` to `ClawTower/ClawTower`:
 
 ```markdown
-[![Build](https://img.shields.io/github/actions/workflow/status/coltz108/ClawTower/ci.yml?branch=main&style=flat-square)](https://github.com/coltz108/ClawTower/actions)
+[![Build](https://img.shields.io/github/actions/workflow/status/ClawTower/ClawTower/ci.yml?branch=main&style=flat-square)](https://github.com/ClawTower/ClawTower/actions)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/coltz108/ClawTower?style=flat-square)](https://github.com/coltz108/ClawTower/releases)
+[![Release](https://img.shields.io/github/v/release/ClawTower/ClawTower?style=flat-square)](https://github.com/ClawTower/ClawTower/releases)
 ```
 
 Also update the oneshot install URL and git clone URL in Quick Start:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/coltz108/ClawTower/main/scripts/oneshot-install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/ClawTower/ClawTower/main/scripts/oneshot-install.sh | sudo bash
 ```
 
 ```bash
-git clone https://github.com/coltz108/ClawTower.git
+git clone https://github.com/ClawTower/ClawTower.git
 ```
 
 **Step 4: Update CI workflow filenames if referenced**

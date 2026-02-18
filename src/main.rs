@@ -121,7 +121,7 @@ CONFIG:
 fn print_version() {
     eprintln!("ClawTower v{}", env!("CARGO_PKG_VERSION"));
     eprintln!("Tamper-proof security watchdog for AI agents");
-    eprintln!("https://github.com/coltz108/ClawTower");
+    eprintln!("https://github.com/ClawTower/ClawTower");
 }
 
 /// Find the scripts directory relative to the binary or fallback locations
@@ -155,7 +155,7 @@ fn download_script(name: &str) -> Result<PathBuf> {
     let version = env!("CARGO_PKG_VERSION");
     let tag = format!("v{}", version);
     let url = format!(
-        "https://raw.githubusercontent.com/coltz108/ClawTower/{}/scripts/{}",
+        "https://raw.githubusercontent.com/ClawTower/ClawTower/{}/scripts/{}",
         tag, name
     );
     eprintln!("Downloading {} from GitHub ({})...", name, tag);
@@ -165,7 +165,7 @@ fn download_script(name: &str) -> Result<PathBuf> {
     if !output.success() {
         // Fall back to main branch
         let url_main = format!(
-            "https://raw.githubusercontent.com/coltz108/ClawTower/main/scripts/{}",
+            "https://raw.githubusercontent.com/ClawTower/ClawTower/main/scripts/{}",
             name
         );
         let output2 = std::process::Command::new("curl")

@@ -14,7 +14,7 @@
  * Build: gcc -shared -fPIC -o libclawguard.so src/preload/interpose_v2.c -ldl -lpthread -lm
  * No heap allocation. All static buffers.
  *
- * (c) 2026 ClawTower / coltz108
+ * (c) 2026 ClawTower / ClawTower
  */
 
 #define _GNU_SOURCE

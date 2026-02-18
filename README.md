@@ -4,9 +4,9 @@
 
 **OS-level runtime security for AI agents — any agent, any framework**
 
-[![Build](https://img.shields.io/github/actions/workflow/status/coltz108/ClawTower/ci.yml?branch=main&style=flat-square)](https://github.com/coltz108/ClawTower/actions)
+[![Build](https://img.shields.io/github/actions/workflow/status/ClawTower/ClawTower/ci.yml?branch=main&style=flat-square)](https://github.com/ClawTower/ClawTower/actions)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/coltz108/ClawTower?style=flat-square)](https://github.com/coltz108/ClawTower/releases)
+[![Release](https://img.shields.io/github/v/release/ClawTower/ClawTower?style=flat-square)](https://github.com/ClawTower/ClawTower/releases)
 
 </div>
 
@@ -25,13 +25,13 @@ Marketplace scanners like VirusTotal are great at catching known malware signatu
 ### One-line Install
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/coltz108/ClawTower/main/scripts/oneshot-install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/ClawTower/ClawTower/main/scripts/oneshot-install.sh | sudo bash
 ```
 
 ### Build from Source
 
 ```bash
-git clone https://github.com/coltz108/ClawTower.git
+git clone https://github.com/ClawTower/ClawTower.git
 cd ClawTower
 cargo build --release
 

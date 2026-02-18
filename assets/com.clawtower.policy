@@ -3,7 +3,7 @@
   "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
 <policyconfig>
   <vendor>ClawTower</vendor>
-  <vendor_url>https://github.com/coltz108/ClawTower</vendor_url>
+  <vendor_url>https://github.com/ClawTower/ClawTower</vendor_url>
 
   <action id="com.clawtower.ctl">
     <description>ClawTower Control</description>

@@ -17,7 +17,7 @@ use tokio::sync::mpsc;
 use crate::alerts::{Alert, Severity};
 use std::time::Duration;
 
-const GITHUB_REPO: &str = "coltz108/ClawTower";
+const GITHUB_REPO: &str = "ClawTower/ClawTower";
 const RELEASE_PUBLIC_KEY: &[u8; 32] = include_bytes!("release-key.pub");
 
 /// Verify an Ed25519 signature over the SHA-256 digest of a binary.
