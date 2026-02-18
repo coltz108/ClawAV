@@ -1,0 +1,225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clawtower.dev/schemas/rule-envelope.schema.json",
+  "title": "ClawTower Rule Envelope",
+  "description": "Canonical intermediate representation for detection and policy rules.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "version",
+    "enabled",
+    "category",
+    "severity",
+    "source",
+    "match",
+    "action"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9][a-z0-9._:-]*$"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 2000
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "recon",
+        "exfiltration",
+        "persistence",
+        "privilege_escalation",
+        "defense_evasion",
+        "lateral_movement",
+        "integrity",
+        "policy",
+        "runtime",
+        "other"
+      ]
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "info",
+        "warning",
+        "critical"
+      ]
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "auditd",
+        "network",
+        "scanner",
+        "sentinel",
+        "journald",
+        "falco",
+        "samhain",
+        "proxy",
+        "admin",
+        "generic"
+      ]
+    },
+    "selector": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "string",
+          "number",
+          "boolean"
+        ]
+      }
+    },
+    "match": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "field": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "op": {
+          "type": "string",
+          "enum": [
+            "regex",
+            "contains",
+            "equals",
+            "glob",
+            "prefix",
+            "suffix",
+            "in"
+          ]
+        },
+        "value": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "array"
+          ]
+        },
+        "case_sensitive": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "field",
+        "op",
+        "value"
+      ]
+    },
+    "condition": {
+      "type": "object",
+      "description": "Optional boolean condition tree for advanced matching.",
+      "additionalProperties": true
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "alert",
+            "block",
+            "quarantine",
+            "tag",
+            "drop_network",
+            "lock_sudo"
+          ]
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "maxItems": 32
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 2000
+        }
+      }
+    },
+    "throttle": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_per_window": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000
+        },
+        "window_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        }
+      }
+    },
+    "dedup": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "shape": {
+          "type": "string",
+          "enum": [
+            "exact",
+            "normalized",
+            "fuzzy"
+          ]
+        },
+        "window_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        }
+      }
+    },
+    "fixtures": {
+      "type": "array",
+      "description": "Optional inline test fixtures for parity and linting.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "event",
+          "expect_match"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "event": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "expect_match": {
+            "type": "boolean"
+          }
+        }
+      },
+      "maxItems": 256
+    }
+  }
+}

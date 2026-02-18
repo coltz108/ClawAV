@@ -1,0 +1,72 @@
+# Example scanner catalog for future registry-driven scheduling.
+# Phase 1: informational artifact only; runtime still uses current scanner wiring.
+# Later: load this via config layering (base + config.d overrides).
+
+schema_version = 1
+catalog_id = "default-linux"
+
+[[scanners]]
+id = "firewall_status"
+enabled = true
+interval_seconds = 60
+timeout_seconds = 10
+requires_root = true
+severity_on_warn = "warning"
+severity_on_fail = "critical"
+architectures = ["x86_64", "aarch64"]
+distros = ["debian", "ubuntu", "raspbian"]
+
+[[scanners]]
+id = "auditd_health"
+enabled = true
+interval_seconds = 120
+timeout_seconds = 15
+requires_root = true
+severity_on_warn = "warning"
+severity_on_fail = "critical"
+architectures = ["x86_64", "aarch64"]
+
+[[scanners]]
+id = "suid_inventory"
+enabled = true
+interval_seconds = 900
+timeout_seconds = 30
+requires_root = true
+severity_on_warn = "warning"
+severity_on_fail = "critical"
+
+[[scanners]]
+id = "container_escape_surface"
+enabled = true
+interval_seconds = 300
+timeout_seconds = 20
+requires_root = false
+severity_on_warn = "warning"
+severity_on_fail = "critical"
+
+[[scanners]]
+id = "ntp_sync"
+enabled = true
+interval_seconds = 300
+timeout_seconds = 8
+requires_root = false
+severity_on_warn = "warning"
+severity_on_fail = "warning"
+
+[[scanners]]
+id = "package_updates"
+enabled = true
+interval_seconds = 3600
+timeout_seconds = 45
+requires_root = false
+severity_on_warn = "info"
+severity_on_fail = "warning"
+
+[[scanners]]
+id = "zombie_processes"
+enabled = true
+interval_seconds = 180
+timeout_seconds = 10
+requires_root = false
+severity_on_warn = "warning"
+severity_on_fail = "warning"

@@ -7,6 +7,7 @@ set -euo pipefail
 SCRIPT_PATH="$(readlink -f "$0")"
 BINARY_SRC="$(dirname "$SCRIPT_PATH")/../target/release/clawtower"
 CONFIG_SRC="$(dirname "$SCRIPT_PATH")/../config.toml"
+INSTALLED_BIN="/usr/local/bin/clawtower"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -18,7 +19,18 @@ warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 die()  { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 
 [[ $EUID -eq 0 ]] || die "Must run as root"
-[[ -f "$BINARY_SRC" ]] || die "Binary not found at $BINARY_SRC — run 'cargo build --release' first"
+
+# Binary: if already installed (e.g. via deploy.sh), keep it — don't overwrite
+# with a potentially stale source tree build. Only copy from source on fresh install.
+SKIP_BINARY_INSTALL=0
+if [[ -f "$INSTALLED_BIN" ]]; then
+    log "Binary already installed at $INSTALLED_BIN — keeping deployed version"
+    SKIP_BINARY_INSTALL=1
+elif [[ -f "$BINARY_SRC" ]]; then
+    : # Fresh install from source build
+else
+    die "Binary not found at $BINARY_SRC or $INSTALLED_BIN — deploy first"
+fi
 [[ -f "$CONFIG_SRC" ]] || die "Config not found at $CONFIG_SRC"
 
 # ── 1. Create system user ────────────────────────────────────────────────────
@@ -29,12 +41,22 @@ fi
 
 # ── 2. Install binary and config ─────────────────────────────────────────────
 log "Installing binary and config..."
-mkdir -p /etc/clawtower /var/log/clawtower /var/run/clawtower
 systemctl stop clawtower 2>/dev/null || true
+sleep 0.5
+# Strip immutable flags from all protected files before touching them
 chattr -i /usr/local/bin/clawtower 2>/dev/null || true
 chattr -i /etc/clawtower/config.toml 2>/dev/null || true
-cp "$BINARY_SRC" /usr/local/bin/clawtower
-chmod 755 /usr/local/bin/clawtower
+chattr -i /etc/clawtower/admin.key.hash 2>/dev/null || true
+chattr -i /etc/systemd/system/clawtower.service 2>/dev/null || true
+# Create dirs after stop (systemd RuntimeDirectory cleanup deletes /var/run/clawtower)
+mkdir -p /etc/clawtower /var/log/clawtower /var/run/clawtower
+if [[ $SKIP_BINARY_INSTALL -eq 0 ]]; then
+    rm -f /usr/local/bin/clawtower
+    cp "$BINARY_SRC" /usr/local/bin/clawtower
+    chmod 755 /usr/local/bin/clawtower
+else
+    log "Skipping binary install (already at $INSTALLED_BIN)"
+fi
 cp "$CONFIG_SRC" /etc/clawtower/config.toml
 chmod 644 /etc/clawtower/config.toml
 chown -R clawtower:clawtower /etc/clawtower /var/log/clawtower /var/run/clawtower
@@ -58,15 +80,13 @@ Wants=auditd.service
 
 [Service]
 Type=simple
-User=clawtower
-Group=clawtower
 ExecStart=/usr/local/bin/clawtower --headless /etc/clawtower/config.toml
 Restart=on-failure
 RestartSec=5
 KillMode=control-group
 TimeoutStopSec=15
 ProtectSystem=strict
-ProtectHome=yes
+ProtectHome=read-only
 NoNewPrivileges=true
 ReadWritePaths=/var/log/clawtower /var/run/clawtower /etc/clawtower
 RuntimeDirectory=clawtower
@@ -87,12 +107,13 @@ for f in /usr/local/bin/clawtower /etc/systemd/system/clawtower.service; do
         warn "  $f not found, skipping chattr"
     fi
 done
-# admin.key.hash is set immutable after first run (when it's generated)
-if [[ -f /etc/clawtower/admin.key.hash ]]; then
-    chattr +i /etc/clawtower/admin.key.hash && log "  chattr +i /etc/clawtower/admin.key.hash — OK" || warn "  chattr +i failed for admin.key.hash"
-fi
+# admin.key.hash: chattr +i is handled by generate-key subcommand below
 
-# ── 4b. Auditd tamper-detection rules ────────────────────────────────────────
+# ── 4b. Generate admin key (one-time, idempotent) ─────────────────────────────
+log "Generating admin key..."
+/usr/local/bin/clawtower generate-key || die "Admin key generation failed"
+
+# ── 4c. Auditd tamper-detection rules ────────────────────────────────────────
 log "Installing auditd tamper-detection rules..."
 if command -v auditctl &>/dev/null; then
     # Check if audit rules are already locked
@@ -249,13 +270,14 @@ echo -e "${GREEN}║  ClawTower installed and hardened.                         
 echo -e "${GREEN}║  The swallowed key is now in effect.                        ║${NC}"
 echo -e "${GREEN}║                                                             ║${NC}"
 echo -e "${GREEN}║  To uninstall: clawtower uninstall --key <admin-key>            ║${NC}"
-echo -e "${GREEN}║  Admin key will be displayed on first service run.          ║${NC}"
+echo -e "${GREEN}║  Your admin key was displayed above — save it now!          ║${NC}"
 echo -e "${GREEN}║  ⚠️  SAVE YOUR ADMIN KEY — it's the only way to uninstall!  ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
 # ── 12. Build and install LD_PRELOAD guard ────────────────────────────────
 log "Building and installing LD_PRELOAD syscall interception..."
+chattr -i /usr/local/lib/clawtower/libclawguard.so 2>/dev/null || true
 PRELOAD_SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
 if [ -f "$PRELOAD_SCRIPT_DIR/build-preload.sh" ]; then
     bash "$PRELOAD_SCRIPT_DIR/build-preload.sh"

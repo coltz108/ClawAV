@@ -724,11 +724,14 @@ pub fn classify_behavior(event: &ParsedEvent) -> Option<(BehaviorCategory, Sever
             }
         }
 
-        // --- CRITICAL: sudo + interpreter chains (Flag 8 escalation) ---
+        // --- CRITICAL/WARNING: direct sudo abuse patterns (Flag 8/15) ---
         if binary == "sudo" && args.len() > 1 {
+            let full_cmd = args.join(" ");
             let sudo_target = args[1].rsplit('/').next().unwrap_or(&args[1]);
+            let full_cmd_lower = full_cmd.to_lowercase();
+
+            // sudo + interpreter chains (Flag 8 escalation)
             if NETWORK_CAPABLE_RUNTIMES.iter().any(|&r| sudo_target.eq_ignore_ascii_case(r)) {
-                let full_cmd = args.join(" ");
                 // setuid/seteuid/setreuid = priv esc chain
                 if full_cmd.contains("setuid") || full_cmd.contains("seteuid")
                     || full_cmd.contains("setreuid") || full_cmd.contains("os.setuid")
@@ -745,6 +748,48 @@ pub fn classify_behavior(event: &ParsedEvent) -> Option<(BehaviorCategory, Sever
                 // Any sudo + interpreter is at minimum a Warning
                 return Some((BehaviorCategory::PrivilegeEscalation, Severity::Warning));
             }
+
+            // Sensitive file access via sudo wrappers (cat/head/tail/grep/diff/find...)
+            if CRITICAL_READ_PATHS.iter().any(|p| full_cmd.contains(p)) {
+                return Some((BehaviorCategory::PrivilegeEscalation, Severity::Critical));
+            }
+            if AGENT_SENSITIVE_PATHS.iter().any(|p| full_cmd.contains(p)) {
+                return Some((BehaviorCategory::DataExfiltration, Severity::Critical));
+            }
+            if RECON_PATHS.iter().any(|p| full_cmd.contains(p)) {
+                return Some((BehaviorCategory::Reconnaissance, Severity::Warning));
+            }
+
+            // GTFO-style command execution through find -exec/-execdir
+            if sudo_target.eq_ignore_ascii_case("find")
+                && (full_cmd_lower.contains("-exec")
+                    || full_cmd_lower.contains("-execdir")
+                    || full_cmd_lower.contains("-ok ")
+                    || full_cmd_lower.contains("-okdir")) {
+                return Some((BehaviorCategory::PrivilegeEscalation, Severity::Critical));
+            }
+
+            // Service tamper/persistence via direct sudo systemctl
+            if full_cmd_lower.contains("systemctl restart clawtower")
+                || full_cmd_lower.contains("systemctl stop clawtower")
+                || full_cmd_lower.contains("systemctl disable clawtower") {
+                return Some((BehaviorCategory::SecurityTamper, Severity::Critical));
+            }
+            if full_cmd_lower.contains("systemctl enable")
+                || full_cmd_lower.contains("systemctl start") {
+                return Some((BehaviorCategory::SecurityTamper, Severity::Warning));
+            }
+
+            // High-value host reconnaissance via direct sudo
+            if full_cmd_lower.contains("journalctl")
+                || full_cmd_lower.contains(" ss ")
+                || full_cmd_lower.contains(" lsof")
+                || full_cmd_lower.contains(" ps ") {
+                return Some((BehaviorCategory::Reconnaissance, Severity::Warning));
+            }
+
+            // Generic direct sudo by the watched agent is suspicious by default.
+            return Some((BehaviorCategory::PrivilegeEscalation, Severity::Warning));
         }
 
         // --- CRITICAL: Kernel module loading (rootkit / priv esc) ---
@@ -3789,13 +3834,39 @@ mod tests {
     }
 
     #[test]
-    fn test_sudo_non_interpreter_not_caught_here() {
-        // sudo + non-interpreter should NOT be caught by this rule
-        // (may be caught by other rules like SecureClaw)
+    fn test_sudo_non_interpreter_is_warning() {
+        // Direct sudo by the watched agent is suspicious even for non-interpreters.
         let event = make_exec_event(&["sudo", "apt-get", "install", "vim"]);
         let result = classify_behavior(&event);
-        // apt-get is not an interpreter, so this specific rule doesn't fire
-        assert_ne!(result, Some((BehaviorCategory::PrivilegeEscalation, Severity::Warning)));
+        assert_eq!(result, Some((BehaviorCategory::PrivilegeEscalation, Severity::Warning)));
+    }
+
+    #[test]
+    fn test_sudo_cat_shadow_is_critical() {
+        let event = make_exec_event(&["sudo", "/usr/bin/cat", "/etc/shadow"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::PrivilegeEscalation, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_sudo_find_exec_is_critical() {
+        let event = make_exec_event(&["sudo", "/usr/bin/find", "/", "-maxdepth", "0", "-exec", "id", "\\;"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::PrivilegeEscalation, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_sudo_systemctl_restart_clawtower_is_critical() {
+        let event = make_exec_event(&["sudo", "/usr/bin/systemctl", "restart", "clawtower"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::SecurityTamper, Severity::Critical)));
+    }
+
+    #[test]
+    fn test_sudo_journalctl_is_recon_warning() {
+        let event = make_exec_event(&["sudo", "/usr/bin/journalctl", "--no-pager", "-n", "50"]);
+        let result = classify_behavior(&event);
+        assert_eq!(result, Some((BehaviorCategory::Reconnaissance, Severity::Warning)));
     }
 }
 

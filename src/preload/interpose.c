@@ -8,6 +8,13 @@
  */
 
 #define _GNU_SOURCE
+
+/* Suppress -Wnonnull-compare: we interpose libc functions whose headers mark
+   params as __attribute__((nonnull)), but callers CAN pass NULL in practice
+   (e.g. buggy programs, fuzz inputs).  Our null checks are intentional
+   defense-in-depth and must not be optimized away. */
+#pragma GCC diagnostic ignored "-Wnonnull-compare"
+
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>

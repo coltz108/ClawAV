@@ -1,9 +1,9 @@
 //! Admin socket and key management for authenticated ClawTower control.
 //!
 //! Provides a Unix domain socket (`/var/run/clawtower/admin.sock`) that accepts
-//! JSON commands authenticated with an Argon2-hashed admin key. On first run,
-//! a 256-bit key is generated and displayed once — the hash is stored, the key
-//! is never persisted.
+//! JSON commands authenticated with an Argon2-hashed admin key. The key is
+//! generated once during `clawtower harden` (via `generate-key` subcommand),
+//! displayed to the operator, and never stored — only the Argon2 hash is persisted.
 //!
 //! Supported commands: `status`, `scan`, `pause`, `config-update`.
 //! Failed auth triggers rate limiting (3 failures → 1-hour lockout) and
@@ -143,10 +143,27 @@ pub fn verify_key(key: &str, hash: &str) -> bool {
         .is_ok()
 }
 
-/// Initialize admin key: if hash file doesn't exist, generate and print key once
+/// Check admin key state on startup. Does NOT generate a key — that only
+/// happens during `clawtower harden` via `generate_and_show_admin_key()`.
+/// If no hash file exists, logs a hint and returns Ok. The admin socket will
+/// reject all commands until a key is generated.
 pub fn init_admin_key(hash_path: &Path) -> Result<()> {
     if hash_path.exists() {
         return Ok(());
+    }
+
+    eprintln!("Admin key not yet generated — run 'clawtower harden' to generate");
+    Ok(())
+}
+
+/// Generate a new admin key, display it once, write the Argon2 hash, and
+/// set chattr +i. Called by `clawtower generate-key` (which `install.sh`
+/// invokes during the harden step). Idempotent: skips if hash already exists.
+/// Returns true if a new key was generated, false if one already existed.
+pub fn generate_and_show_admin_key(hash_path: &Path) -> Result<bool> {
+    if hash_path.exists() {
+        eprintln!("Admin key already exists at {} — skipping generation", hash_path.display());
+        return Ok(false);
     }
 
     let (display_key, hash) = generate_admin_key()?;
@@ -173,7 +190,7 @@ pub fn init_admin_key(hash_path: &Path) -> Result<()> {
     eprintln!("╚══════════════════════════════════════════════════════════════╝");
     eprintln!();
 
-    Ok(())
+    Ok(true)
 }
 
 impl AdminSocket {
@@ -631,6 +648,37 @@ mod tests {
         init_admin_key(&hash_path).unwrap();
         let content = std::fs::read_to_string(&hash_path).unwrap();
         assert_eq!(content, "existing-hash", "Existing hash should not be overwritten");
+    }
+
+    #[test]
+    fn test_init_admin_key_no_hash_does_not_generate() {
+        let dir = tempfile::tempdir().unwrap();
+        let hash_path = dir.path().join("admin.hash");
+        // init should return Ok but NOT create the file
+        init_admin_key(&hash_path).unwrap();
+        assert!(!hash_path.exists(), "init_admin_key should not generate a key");
+    }
+
+    #[test]
+    fn test_generate_and_show_skips_existing() {
+        let dir = tempfile::tempdir().unwrap();
+        let hash_path = dir.path().join("admin.hash");
+        std::fs::write(&hash_path, "existing-hash").unwrap();
+        let generated = generate_and_show_admin_key(&hash_path).unwrap();
+        assert!(!generated, "Should skip when hash already exists");
+        let content = std::fs::read_to_string(&hash_path).unwrap();
+        assert_eq!(content, "existing-hash", "Existing hash should not be overwritten");
+    }
+
+    #[test]
+    fn test_generate_and_show_creates_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let hash_path = dir.path().join("admin.hash");
+        let generated = generate_and_show_admin_key(&hash_path).unwrap();
+        assert!(generated, "Should generate a new key");
+        assert!(hash_path.exists(), "Hash file should be created");
+        let content = std::fs::read_to_string(&hash_path).unwrap();
+        assert!(content.starts_with("$argon2"), "Hash should be argon2 format");
     }
 
     #[test]

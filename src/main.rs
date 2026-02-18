@@ -32,6 +32,7 @@ mod aggregator;
 mod apparmor;
 mod capabilities;
 mod correlator;
+mod detect;
 mod memory_sentinel;
 mod process_cage;
 mod api;
@@ -51,12 +52,14 @@ mod network;
 mod openclaw_config;
 mod policy;
 mod proxy;
+mod runtime;
 mod safe_cmd;
 mod safe_io;
 mod safe_match;
 mod safe_tail;
 mod samhain;
 mod scanner;
+mod sources;
 mod forensics;
 mod seccomp;
 mod secureclaw;
@@ -102,6 +105,7 @@ COMMANDS:
     setup --source       Build from source + install
     setup --auto         Install + start service automatically
     harden               Apply tamper-proof "swallowed key" hardening
+    generate-key         Generate admin key (called by harden, idempotent)
     setup-apparmor       Install AppArmor profiles (or pam_cap fallback)
     uninstall            Reverse hardening + remove ClawTower (requires admin key)
     sync                 Update SecureClaw pattern databases
@@ -278,7 +282,7 @@ fn run_install(force: bool) -> Result<()> {
     eprintln!("  1. Edit /etc/clawtower/config.toml (set watched_user, Slack webhook, etc.)");
     eprintln!("  2. Run: clawtower configure    (interactive wizard)");
     eprintln!("  3. Run: clawtower              (start the dashboard)");
-    eprintln!("  4. Run: clawtower harden       (apply tamper-proof hardening)");
+    eprintln!("  4. Run: clawtower harden       (generates admin key + applies hardening)");
 
     Ok(())
 }
@@ -386,6 +390,16 @@ async fn async_main() -> Result<()> {
         }
         "harden" => {
             return run_script("install.sh", &rest_args);
+        }
+        "generate-key" => {
+            let hash_path = std::path::Path::new("/etc/clawtower/admin.key.hash");
+            match admin::generate_and_show_admin_key(hash_path) {
+                Ok(_) => return Ok(()),
+                Err(e) => {
+                    eprintln!("Failed to generate admin key: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
         "setup-apparmor" => {
             let quiet = rest_args.iter().any(|a| a == "--quiet" || a == "-q");
