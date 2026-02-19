@@ -147,21 +147,10 @@ impl Aggregator {
     /// Process an alert through dedup and rate limiting.
     /// Returns Some(alert) if it should be forwarded, None if suppressed.
     pub fn process(&mut self, alert: Alert) -> Option<Alert> {
-        // Always allow Critical alerts through (never suppress)
+        // Critical alerts are NEVER deduplicated — they always pass through.
+        // This prevents an attacker from poisoning the dedup cache with
+        // similar-shaped benign alerts to suppress real critical detections (H9).
         if alert.severity == crate::alerts::Severity::Critical {
-            // Still track for dedup but don't suppress
-            let key = Self::dedup_key(&alert);
-            let now = Instant::now();
-            if let Some(entry) = self.dedup_map.get(&key) {
-                if now.duration_since(entry.last_seen) < Duration::from_secs(5) {
-                    // Only dedup criticals within 5 seconds (very tight window)
-                    return None;
-                }
-            }
-            self.dedup_map.insert(key, DeduplicationEntry {
-                last_seen: now,
-                suppressed_count: 0,
-            });
             return Some(alert);
         }
 
@@ -365,13 +354,23 @@ mod tests {
     }
 
     #[test]
-    fn test_critical_dedup_tight_window() {
+    fn test_critical_never_deduped() {
         let mut agg = Aggregator::new(AggregatorConfig::default());
         let a1 = make_alert("falco", "privilege escalation!", Severity::Critical);
         let a2 = make_alert("falco", "privilege escalation!", Severity::Critical);
         assert!(agg.process(a1).is_some());
-        // Within 5-second tight window, critical IS deduped
-        assert!(agg.process(a2).is_none(), "Identical critical within 5s should be deduped");
+        // Critical alerts are NEVER deduped — prevents suppression attacks (H9)
+        assert!(agg.process(a2).is_some(), "Critical alerts must never be deduplicated");
+    }
+
+    #[test]
+    fn test_critical_alerts_different_pids_never_deduped() {
+        let mut agg = Aggregator::new(AggregatorConfig::default());
+        let a1 = make_alert("behavior", "CREDENTIAL READ: /etc/shadow accessed by /usr/bin/python3 pid=1234", Severity::Critical);
+        let a2 = make_alert("behavior", "CREDENTIAL READ: /etc/shadow accessed by /usr/bin/python3 pid=5678", Severity::Critical);
+        // Both should pass through — Critical alerts must never be suppressed by shape dedup
+        assert!(agg.process(a1).is_some());
+        assert!(agg.process(a2).is_some(), "Critical alerts with different PIDs must not be deduped");
     }
 
     #[test]
