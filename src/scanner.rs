@@ -2012,6 +2012,70 @@ pub fn scan_barnacle_sync() -> ScanResult {
     }
 }
 
+/// Scan for non-loopback UDP listeners (potential exfiltration or C2 channels).
+pub fn scan_udp_listeners() -> ScanResult {
+    match run_cmd("ss", &["-ulnp"]) {
+        Ok(out) => {
+            let suspicious: Vec<&str> = out.lines()
+                .filter(|l| l.contains("UNCONN") && !l.contains("127.0.0.1") && !l.contains("::1"))
+                .collect();
+            if suspicious.is_empty() {
+                ScanResult::new("udp_listeners", ScanStatus::Pass, "No suspicious UDP listeners")
+            } else {
+                ScanResult::new("udp_listeners", ScanStatus::Warn,
+                    &format!("{} non-loopback UDP listener(s): {}", suspicious.len(),
+                        suspicious.iter().take(3).cloned().collect::<Vec<_>>().join("; ")))
+            }
+        }
+        Err(_) => ScanResult::new("udp_listeners", ScanStatus::Warn, "ss not available"),
+    }
+}
+
+/// Scan for binaries with dangerous file capabilities (privilege escalation vector).
+pub fn scan_file_capabilities() -> ScanResult {
+    match run_cmd("getcap", &["-r", "/usr/bin"]) {
+        Ok(out) if !out.trim().is_empty() => {
+            let dangerous = ["cap_sys_admin", "cap_net_admin", "cap_dac_override", "cap_sys_ptrace"];
+            let risky: Vec<&str> = out.lines()
+                .filter(|l| dangerous.iter().any(|d| l.contains(d)))
+                .collect();
+            if risky.is_empty() {
+                ScanResult::new("file_capabilities", ScanStatus::Pass,
+                    &format!("Found capabilities but none dangerous ({})", out.lines().count()))
+            } else {
+                ScanResult::new("file_capabilities", ScanStatus::Warn,
+                    &format!("{} binaries with dangerous capabilities: {}",
+                        risky.len(), risky.iter().take(3).cloned().collect::<Vec<_>>().join("; ")))
+            }
+        }
+        Ok(_) => ScanResult::new("file_capabilities", ScanStatus::Pass, "No file capabilities found"),
+        Err(_) => ScanResult::new("file_capabilities", ScanStatus::Warn, "getcap not available"),
+    }
+}
+
+/// Scan for world-writable directories in $PATH (allows PATH injection attacks).
+pub fn scan_writable_path_dirs() -> ScanResult {
+    let path_var = std::env::var("PATH").unwrap_or_default();
+    let writable: Vec<&str> = path_var.split(':')
+        .filter(|dir| {
+            std::fs::metadata(dir)
+                .map(|m| {
+                    use std::os::unix::fs::MetadataExt;
+                    let mode = m.mode();
+                    mode & 0o002 != 0
+                })
+                .unwrap_or(false)
+        })
+        .collect();
+
+    if writable.is_empty() {
+        ScanResult::new("writable_path", ScanStatus::Pass, "No world-writable directories in PATH")
+    } else {
+        ScanResult::new("writable_path", ScanStatus::Fail,
+            &format!("World-writable directories in PATH: {}", writable.join(", ")))
+    }
+}
+
 impl SecurityScanner {
     /// Execute all 30+ security checks and return the results.
     ///
@@ -2057,6 +2121,9 @@ impl SecurityScanner {
             scan_network_interfaces(),
             scan_systemd_hardening(),
             scan_user_account_audit(),
+            scan_udp_listeners(),
+            scan_file_capabilities(),
+            scan_writable_path_dirs(),
         ];
         // Shadow/quarantine directory permission verification
         results.push(scan_shadow_quarantine_permissions());
@@ -4038,5 +4105,26 @@ rules 0
         let (critical, warnings) = parse_sudoers_risks(content, "/etc/sudoers");
         assert!(critical.is_empty());
         assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn test_scan_udp_listeners_returns_result() {
+        let result = scan_udp_listeners();
+        assert_eq!(result.category, "udp_listeners");
+    }
+
+    #[test]
+    fn test_scan_file_capabilities_returns_result() {
+        let result = scan_file_capabilities();
+        assert_eq!(result.category, "file_capabilities");
+    }
+
+    #[test]
+    fn test_scan_writable_path_dirs_returns_result() {
+        let result = scan_writable_path_dirs();
+        assert_eq!(result.category, "writable_path");
+        // Standard systems should not have world-writable PATH dirs
+        assert_ne!(result.status, ScanStatus::Fail,
+            "Standard system should not have writable PATH dirs");
     }
 }
