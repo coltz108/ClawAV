@@ -61,6 +61,7 @@ mod netpolicy;
 mod network;
 mod openclaw_config;
 mod policy;
+mod prompt_firewall;
 mod proxy;
 mod runtime;
 mod safe_cmd;
@@ -1104,17 +1105,17 @@ async fn async_main() -> Result<()> {
         let barnacle_engine = crate::barnacle::BarnacleEngine::load(
             std::path::Path::new("/etc/clawtower/barnacle")
         ).ok().map(std::sync::Arc::new);
-        
+
         tokio::spawn(async move {
-            eprintln!("[sentinel] Starting sentinel with {} watch paths", sentinel_config.watch_paths.len());
             match crate::sentinel::Sentinel::new(sentinel_config, sentinel_tx, barnacle_engine) {
                 Ok(sentinel) => {
-                    eprintln!("[sentinel] Initialized OK, entering run loop");
                     if let Err(e) = sentinel.run().await {
-                        eprintln!("[sentinel] Sentinel error: {}", e);
+                        eprintln!("[sentinel] run() error: {}", e);
                     }
                 }
-                Err(e) => eprintln!("[sentinel] Failed to start sentinel: {}", e),
+                Err(e) => {
+                    eprintln!("[sentinel] init error: {}", e);
+                }
             }
         });
     }
@@ -1166,7 +1167,7 @@ async fn async_main() -> Result<()> {
         });
 
         tokio::select! {
-            result = tui::run_tui(alert_rx, Some(config_path.clone()), pending_store.clone(), response_tx.clone()) => { result?; }
+            result = tui::run_tui(alert_rx, Some(config_path.clone()), pending_store.clone(), response_tx.clone(), Some(scan_store.clone())) => { result?; }
             _ = &mut shutdown_rx => { /* SIGTERM received, exit cleanly */ }
         }
     }
