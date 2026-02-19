@@ -8,7 +8,7 @@
 //! markers and encoding attacks (null bytes, homoglyphs).
 
 use crate::alerts::Severity;
-use crate::barnacle::BarnacleEngine;
+use crate::detect::barnacle::BarnacleEngine;
 use crate::behavior::check_social_engineering_content;
 
 /// Prompt injection markers -- strings that indicate embedded instructions in files
@@ -242,7 +242,7 @@ mod tests {
 
     #[test]
     fn test_skill_intake_block_on_barnacle_match() {
-        use crate::barnacle::BarnacleEngine;
+        use crate::detect::barnacle::BarnacleEngine;
         use tempfile::TempDir;
 
         let d = TempDir::new().unwrap();
@@ -262,7 +262,7 @@ mod tests {
 
     #[test]
     fn test_skill_intake_pass_with_engine_no_match() {
-        use crate::barnacle::BarnacleEngine;
+        use crate::detect::barnacle::BarnacleEngine;
         use tempfile::TempDir;
 
         let d = TempDir::new().unwrap();

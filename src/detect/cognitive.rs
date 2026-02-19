@@ -306,7 +306,7 @@ fn save_shadow(path: &Path) {
 /// Creates baselines on first run, then checks for modifications, deletions,
 /// and new files. Protected file changes are CRIT; watched file changes are WARN
 /// with auto-rebaseline.
-pub fn scan_cognitive_integrity(workspace_dir: &Path, baseline_path: &Path, _barnacle: Option<&crate::barnacle::BarnacleEngine>) -> Vec<ScanResult> {
+pub fn scan_cognitive_integrity(workspace_dir: &Path, baseline_path: &Path, _barnacle: Option<&super::barnacle::BarnacleEngine>) -> Vec<ScanResult> {
     // If no baseline exists yet, create one and save shadows
     if !baseline_path.exists() {
         let baseline = CognitiveBaseline::from_workspace(workspace_dir);

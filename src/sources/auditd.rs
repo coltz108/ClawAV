@@ -680,7 +680,7 @@ fn shadow_parity_alert(
 
     let baseline = behavior_baseline_signature(event);
     let shadow_event = parsed_event_to_detection_event(event);
-    let proposals = crate::runtime::detector_runner::run_detectors(detectors, &shadow_event);
+    let proposals = crate::detect::detector_runner::run_detectors(detectors, &shadow_event);
     let shadow = behavior_proposal_signature(&proposals);
 
     if baseline == shadow {
@@ -837,8 +837,8 @@ pub async fn tail_audit_log_with_behavior_and_policy(
     path: &Path,
     watched_users: Option<Vec<String>>,
     tx: mpsc::Sender<Alert>,
-    policy_engine: Option<crate::policy::PolicyEngine>,
-    barnacle_engine: Option<Arc<crate::barnacle::BarnacleEngine>>,
+    policy_engine: Option<crate::detect::policy::PolicyEngine>,
+    barnacle_engine: Option<Arc<crate::detect::barnacle::BarnacleEngine>>,
 ) -> Result<()> {
     tail_audit_log_full(path, watched_users, tx, policy_engine, barnacle_engine, None, vec![], false).await
 }
@@ -853,8 +853,8 @@ pub async fn tail_audit_log_full(
     path: &Path,
     watched_users: Option<Vec<String>>,
     tx: mpsc::Sender<Alert>,
-    policy_engine: Option<crate::policy::PolicyEngine>,
-    barnacle_engine: Option<Arc<crate::barnacle::BarnacleEngine>>,
+    policy_engine: Option<crate::detect::policy::PolicyEngine>,
+    barnacle_engine: Option<Arc<crate::detect::barnacle::BarnacleEngine>>,
     _netpolicy: Option<crate::netpolicy::NetPolicy>,
     _extra_safe_hosts: Vec<String>,
     behavior_shadow_mode: bool,

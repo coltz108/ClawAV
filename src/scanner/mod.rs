@@ -35,7 +35,7 @@ use tokio::sync::{mpsc, Mutex};
 use tokio::time::{sleep, Duration};
 
 use crate::alerts::{Alert, Severity};
-use crate::cognitive::scan_cognitive_integrity;
+use crate::detect::cognitive::scan_cognitive_integrity;
 
 // Re-export scan functions from submodules so SecurityScanner::run_all_scans_with_config
 // can call them without prefixing.
@@ -198,7 +198,7 @@ impl SecurityScanner {
 
         // Cognitive file integrity (returns Vec)
         // Load Barnacle engine for cognitive content scanning
-        let barnacle_engine = crate::barnacle::BarnacleEngine::load(
+        let barnacle_engine = crate::detect::barnacle::BarnacleEngine::load(
             std::path::Path::new("/etc/clawtower/barnacle")
         ).ok();
         results.extend(scan_cognitive_integrity(

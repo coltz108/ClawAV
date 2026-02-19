@@ -14,7 +14,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use crate::barnacle::BarnacleConfig;
+use crate::detect::barnacle::BarnacleConfig;
 use crate::config_merge::merge_toml;
 
 /// Root configuration struct, deserialized from TOML.

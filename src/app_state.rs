@@ -13,9 +13,9 @@ use tokio::sync::mpsc;
 
 use crate::alerts::{Alert, Severity};
 use crate::api;
-use crate::barnacle;
 use crate::config::Config;
-use crate::policy;
+use crate::detect::barnacle;
+use crate::detect::policy;
 use crate::response::{self, SharedPendingActions};
 use crate::scanner;
 use crate::slack::SlackNotifier;

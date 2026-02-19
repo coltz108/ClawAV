@@ -456,7 +456,7 @@ async fn handle(
             // Policy versions (populated when policy_dir/barnacle_dir are wired)
             let mut policies = vec![];
             if let Some(ref dir) = ctx.policy_dir {
-                if let Ok(engine) = crate::policy::PolicyEngine::load(dir) {
+                if let Ok(engine) = crate::detect::policy::PolicyEngine::load(dir) {
                     for fi in engine.file_info() {
                         policies.push(serde_json::to_value(fi).unwrap_or_default());
                     }
@@ -464,7 +464,7 @@ async fn handle(
             }
             let mut ioc_databases = vec![];
             if let Some(ref dir) = ctx.barnacle_dir {
-                if let Ok(engine) = crate::barnacle::BarnacleEngine::load(dir) {
+                if let Ok(engine) = crate::detect::barnacle::BarnacleEngine::load(dir) {
                     for di in engine.db_info() {
                         ioc_databases.push(serde_json::to_value(di).unwrap_or_default());
                     }

@@ -450,7 +450,7 @@ pub async fn dispatch_subcommand(subcommand: &str, rest_args: &[String], all_arg
             Ok(true)
         }
         "update-ioc" => {
-            crate::barnacle::run_update_ioc(rest_args)?;
+            crate::detect::barnacle::run_update_ioc(rest_args)?;
             Ok(true)
         }
         "sync" => {

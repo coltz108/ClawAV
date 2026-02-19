@@ -12,7 +12,7 @@
 
 use crate::alerts::{Alert, Severity};
 use crate::config::PromptFirewallConfig;
-use crate::prompt_firewall::{PromptFirewall, FirewallResult};
+use crate::detect::prompt_firewall::{PromptFirewall, FirewallResult};
 use anyhow::Result;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, Request, Response, Server, StatusCode, Uri};

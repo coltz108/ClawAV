@@ -686,7 +686,7 @@ rules:
     // ═══════════════════════════════════════════════════════════════════
 
     fn full_policy_yaml() -> &'static str {
-        include_str!("../policies/default.yaml")
+        include_str!("../../policies/default.yaml")
     }
 
     fn load_full_policy() -> PolicyEngine {

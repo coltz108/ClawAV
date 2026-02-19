@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
 use crate::alerts::{Alert, Severity};
-use crate::barnacle::BarnacleEngine;
+use crate::detect::barnacle::BarnacleEngine;
 
 use shadow::{harden_directory_permissions};
 

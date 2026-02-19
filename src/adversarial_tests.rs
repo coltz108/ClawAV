@@ -5,7 +5,7 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::correlator::*;
+    use crate::detect::correlator::*;
     use std::time::{Duration, Instant};
 
     fn make_event_at(

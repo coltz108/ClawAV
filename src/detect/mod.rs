@@ -5,3 +5,15 @@
 pub mod behavior_adapter;
 #[allow(dead_code)]
 pub mod traits;
+
+pub mod policy;
+pub mod cognitive;
+pub mod correlator;
+pub mod forensics;
+pub mod barnacle;
+pub mod prompt_firewall;
+
+#[allow(dead_code)]
+pub mod detector_runner;
+#[allow(dead_code)]
+pub mod registry;
