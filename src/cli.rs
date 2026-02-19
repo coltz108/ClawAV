@@ -555,11 +555,11 @@ pub async fn dispatch_subcommand(subcommand: &str, rest_args: &[String], all_arg
             let output_path = rest_args.iter()
                 .find_map(|a| a.strip_prefix("--output="));
 
-            let report = crate::compliance::generate_report(framework, period, &[], &[]);
+            let report = crate::detect::compliance::generate_report(framework, period, &[], &[]);
 
             let output = match output_format {
-                "json" => crate::compliance::report_to_json(&report),
-                _ => crate::compliance::report_to_text(&report),
+                "json" => crate::detect::compliance::report_to_json(&report),
+                _ => crate::detect::compliance::report_to_text(&report),
             };
 
             if let Some(path) = output_path {

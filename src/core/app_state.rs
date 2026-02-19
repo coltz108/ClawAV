@@ -16,7 +16,7 @@ use super::response::{self, SharedPendingActions};
 use crate::interface::api;
 use crate::config::Config;
 use crate::detect::barnacle;
-use crate::detect::policy;
+use crate::policy::rules as policy;
 use crate::scanner;
 use crate::interface::slack::SlackNotifier;
 

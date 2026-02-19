@@ -837,7 +837,7 @@ pub async fn tail_audit_log_with_behavior_and_policy(
     path: &Path,
     watched_users: Option<Vec<String>>,
     tx: mpsc::Sender<Alert>,
-    policy_engine: Option<crate::detect::policy::PolicyEngine>,
+    policy_engine: Option<crate::policy::rules::PolicyEngine>,
     barnacle_engine: Option<Arc<crate::detect::barnacle::BarnacleEngine>>,
 ) -> Result<()> {
     tail_audit_log_full(path, watched_users, tx, policy_engine, barnacle_engine, None, vec![], false).await
@@ -853,9 +853,9 @@ pub async fn tail_audit_log_full(
     path: &Path,
     watched_users: Option<Vec<String>>,
     tx: mpsc::Sender<Alert>,
-    policy_engine: Option<crate::detect::policy::PolicyEngine>,
+    policy_engine: Option<crate::policy::rules::PolicyEngine>,
     barnacle_engine: Option<Arc<crate::detect::barnacle::BarnacleEngine>>,
-    _netpolicy: Option<crate::netpolicy::NetPolicy>,
+    _netpolicy: Option<crate::policy::network::NetPolicy>,
     _extra_safe_hosts: Vec<String>,
     behavior_shadow_mode: bool,
 ) -> Result<()> {

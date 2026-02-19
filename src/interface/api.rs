@@ -171,7 +171,7 @@ pub struct ApiContext {
 struct EvidenceBundle {
     generated_at: String,
     clawtower_version: &'static str,
-    compliance_report: crate::compliance::ComplianceReport,
+    compliance_report: crate::detect::compliance::ComplianceReport,
     scanner_snapshot: Vec<ScannerSnapshotEntry>,
     audit_chain_proof: AuditChainProof,
     policy_versions: PolicyVersions,
@@ -426,7 +426,7 @@ async fn handle(
                 .collect();
 
             // Generate compliance report
-            let report = crate::compliance::generate_report(framework, period, &alert_summary, &scanner_tuples);
+            let report = crate::detect::compliance::generate_report(framework, period, &alert_summary, &scanner_tuples);
 
             // Verify audit chain
             let audit_proof = if let Some(ref path) = ctx.audit_chain_path {
@@ -456,7 +456,7 @@ async fn handle(
             // Policy versions (populated when policy_dir/barnacle_dir are wired)
             let mut policies = vec![];
             if let Some(ref dir) = ctx.policy_dir {
-                if let Ok(engine) = crate::detect::policy::PolicyEngine::load(dir) {
+                if let Ok(engine) = crate::policy::rules::PolicyEngine::load(dir) {
                     for fi in engine.file_info() {
                         policies.push(serde_json::to_value(fi).unwrap_or_default());
                     }
