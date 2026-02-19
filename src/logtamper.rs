@@ -3,10 +3,11 @@
 
 //! Audit log tampering detection.
 //!
-//! Monitors the audit log file for three indicators of evidence destruction:
+//! Monitors the audit log file for four indicators of evidence destruction:
 //! - **Missing**: file no longer exists
 //! - **Replaced**: inode changed (file was recreated), distinguishing log rotation
 //! - **Truncated**: file size decreased
+//! - **Content modified**: SHA-256 hash of content changed (catches same-size overwrites)
 //!
 //! Also provides a scanner function to check log file permissions.
 
@@ -24,9 +25,10 @@ pub async fn monitor_log_integrity(
 ) {
     let mut last_size: Option<u64> = None;
     let mut last_inode: Option<u64> = None;
+    let mut last_hash: Option<String> = None;
 
     loop {
-        if let Some(alert) = check_log_file(&log_path, &mut last_size, &mut last_inode) {
+        if let Some(alert) = check_log_file(&log_path, &mut last_size, &mut last_inode, &mut last_hash) {
             let _ = tx.send(alert).await;
         }
         sleep(Duration::from_secs(interval_secs)).await;
@@ -37,6 +39,7 @@ fn check_log_file(
     path: &Path,
     last_size: &mut Option<u64>,
     last_inode: &mut Option<u64>,
+    last_hash: &mut Option<String>,
 ) -> Option<Alert> {
     use std::os::unix::fs::MetadataExt;
 
@@ -102,6 +105,40 @@ fn check_log_file(
         }
     }
 
+    // Content integrity check (SHA-256 of first 64KB + last 64KB)
+    // Only alert on hash change when size is unchanged — a same-size overwrite attack.
+    // When the file grows (normal log append), just update the hash silently.
+    if let Ok(content) = std::fs::read(path) {
+        let hash = {
+            use sha2::{Sha256, Digest};
+            let mut hasher = Sha256::new();
+            // Hash first 64KB and last 64KB (efficient for large files)
+            let chunk_size = 65536;
+            if content.len() <= chunk_size * 2 {
+                hasher.update(&content);
+            } else {
+                hasher.update(&content[..chunk_size]);
+                hasher.update(&content[content.len() - chunk_size..]);
+            }
+            format!("{:x}", hasher.finalize())
+        };
+
+        if let Some(ref prev_hash) = *last_hash {
+            let size_unchanged = last_size.map_or(false, |s| s == current_size);
+            if hash != *prev_hash && size_unchanged {
+                *last_hash = Some(hash);
+                *last_size = Some(current_size);
+                *last_inode = Some(current_inode);
+                return Some(Alert::new(
+                    Severity::Critical,
+                    "logtamper",
+                    &format!("Audit log CONTENT MODIFIED: {} — hash changed without size change", path.display()),
+                ));
+            }
+        }
+        *last_hash = Some(hash);
+    }
+
     // Update tracking state
     *last_size = Some(current_size);
     *last_inode = Some(current_inode);
@@ -159,7 +196,8 @@ mod tests {
     fn test_missing_log_triggers_critical() {
         let mut last_size = Some(1000);
         let mut last_inode = Some(12345);
-        let alert = check_log_file(Path::new("/nonexistent/audit.log"), &mut last_size, &mut last_inode);
+        let mut last_hash = None;
+        let alert = check_log_file(Path::new("/nonexistent/audit.log"), &mut last_size, &mut last_inode, &mut last_hash);
         assert!(alert.is_some());
         let alert = alert.unwrap();
         assert_eq!(alert.severity, Severity::Critical);
@@ -171,7 +209,8 @@ mod tests {
         // Use /dev/null as a file that exists
         let mut last_size = None;
         let mut last_inode = None;
-        let alert = check_log_file(Path::new("/dev/null"), &mut last_size, &mut last_inode);
+        let mut last_hash = None;
+        let alert = check_log_file(Path::new("/dev/null"), &mut last_size, &mut last_inode, &mut last_hash);
         assert!(alert.is_none());
         assert!(last_size.is_some());
         assert!(last_inode.is_some());
@@ -181,8 +220,9 @@ mod tests {
     fn test_size_decrease_triggers_truncation_alert() {
         let mut last_size = Some(10000);
         let mut last_inode = None;
+        let mut last_hash = None;
         // /dev/null has size 0, so this simulates truncation
-        let alert = check_log_file(Path::new("/dev/null"), &mut last_size, &mut last_inode);
+        let alert = check_log_file(Path::new("/dev/null"), &mut last_size, &mut last_inode, &mut last_hash);
         // First call sets inode, but since last_inode was None, no inode change alert
         // Size check: 0 < 10000 = truncation
         assert!(alert.is_some());
@@ -207,15 +247,16 @@ mod tests {
 
         let mut last_size = None;
         let mut last_inode = None;
+        let mut last_hash = None;
 
         // First check: baseline
-        let alert = check_log_file(&path, &mut last_size, &mut last_inode);
+        let alert = check_log_file(&path, &mut last_size, &mut last_inode, &mut last_hash);
         assert!(alert.is_none());
 
         // Grow the file
         std::fs::write(&path, "initial content\nmore data here\neven more").unwrap();
 
-        let alert = check_log_file(&path, &mut last_size, &mut last_inode);
+        let alert = check_log_file(&path, &mut last_size, &mut last_inode, &mut last_hash);
         assert!(alert.is_none(), "Growing file should not alert");
     }
 
@@ -227,14 +268,15 @@ mod tests {
 
         let mut last_size = None;
         let mut last_inode = None;
+        let mut last_hash = None;
 
         // Baseline
-        check_log_file(&path, &mut last_size, &mut last_inode);
+        check_log_file(&path, &mut last_size, &mut last_inode, &mut last_hash);
 
         // Truncate
         std::fs::write(&path, "short").unwrap();
 
-        let alert = check_log_file(&path, &mut last_size, &mut last_inode);
+        let alert = check_log_file(&path, &mut last_size, &mut last_inode, &mut last_hash);
         assert!(alert.is_some());
         let alert = alert.unwrap();
         assert_eq!(alert.severity, Severity::Critical);
@@ -249,10 +291,11 @@ mod tests {
 
         let mut last_size = None;
         let mut last_inode = None;
+        let mut last_hash = None;
 
-        check_log_file(&path, &mut last_size, &mut last_inode);
-        // Same content = same size
-        let alert = check_log_file(&path, &mut last_size, &mut last_inode);
+        check_log_file(&path, &mut last_size, &mut last_inode, &mut last_hash);
+        // Same content = same size = same hash
+        let alert = check_log_file(&path, &mut last_size, &mut last_inode, &mut last_hash);
         assert!(alert.is_none(), "Same size should not alert");
     }
 
@@ -264,11 +307,12 @@ mod tests {
 
         let mut last_size = None;
         let mut last_inode = None;
+        let mut last_hash = None;
 
-        check_log_file(&path, &mut last_size, &mut last_inode);
+        check_log_file(&path, &mut last_size, &mut last_inode, &mut last_hash);
         std::fs::remove_file(&path).unwrap();
 
-        let alert = check_log_file(&path, &mut last_size, &mut last_inode);
+        let alert = check_log_file(&path, &mut last_size, &mut last_inode, &mut last_hash);
         assert!(alert.is_some());
         assert_eq!(alert.unwrap().severity, Severity::Critical);
     }
@@ -295,5 +339,26 @@ mod tests {
         let result = scan_audit_log_health(Path::new("/etc/passwd"));
         // Should pass or warn depending on permissions, but not fail
         assert_ne!(result.status, crate::scanner::ScanStatus::Fail);
+    }
+
+    #[test]
+    fn test_content_overwrite_same_size_detected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.log");
+        std::fs::write(&path, "original content here!").unwrap();
+
+        let mut last_size = None;
+        let mut last_inode = None;
+        let mut last_hash = None;
+
+        // Baseline
+        let alert = check_log_file(&path, &mut last_size, &mut last_inode, &mut last_hash);
+        assert!(alert.is_none());
+
+        // Overwrite with same length but different content
+        std::fs::write(&path, "tampered content here!").unwrap(); // same length
+        let alert = check_log_file(&path, &mut last_size, &mut last_inode, &mut last_hash);
+        assert!(alert.is_some(), "Same-size content overwrite must be detected");
+        assert!(alert.unwrap().message.contains("CONTENT MODIFIED"));
     }
 }
