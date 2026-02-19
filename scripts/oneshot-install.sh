@@ -110,7 +110,7 @@ phase_bar() {
             echo -en "${DIM}○ ${p}${NC}"
         fi
         [[ $i -lt $((${#phases[@]} - 1)) ]] && echo -en "  ${DIM}─${NC}  "
-        ((i++))
+        i=$((i + 1))
     done
     echo -e "\n"
 }
