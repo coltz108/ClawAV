@@ -361,6 +361,8 @@ pub async fn run_watchdog(state: AppState, receivers: AlertReceivers) -> Result<
             policy_dir: Some(PathBuf::from(&state.config.policy.dir)),
             barnacle_dir: Some(PathBuf::from(&state.config.barnacle.vendor_dir)),
             active_profile: state.profile_name.clone(),
+            orchestrator: None, // Wired in Task 11
+            slack_signing_secret: state.config.slack.signing_secret.clone(),
         });
         let bind = state.config.api.bind.clone();
         let port = state.config.api.port;
