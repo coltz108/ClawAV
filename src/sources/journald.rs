@@ -19,7 +19,7 @@ use std::path::Path;
 use tokio::sync::mpsc;
 
 use crate::alerts::{Alert, Severity};
-use crate::network::parse_iptables_line;
+use crate::sources::network::parse_iptables_line;
 use crate::safe::safe_cmd::SafeCommand;
 
 /// Absolute path to journalctl binary.

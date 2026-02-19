@@ -165,7 +165,7 @@ impl SecurityScanner {
             scan_immutable_flags(),
             scan_apparmor_protection(),
             scan_barnacle_sync(),
-            crate::logtamper::scan_audit_log_health(std::path::Path::new("/var/log/audit/audit.log")),
+            crate::sources::logtamper::scan_audit_log_health(std::path::Path::new("/var/log/audit/audit.log")),
             // New expanded security checks
             scan_crontab_audit(),
             scan_world_writable_files(),

@@ -17,9 +17,9 @@ use crate::app_state::{AlertReceivers, AppState};
 use crate::response::ResponseRequest;
 use crate::slack::SlackNotifier;
 use crate::{
-    admin, aggregator, api, auditd, barnacle, falco, firewall, journald, logtamper,
-    memory_sentinel, netpolicy, network, proxy, response, samhain, scanner, sentinel, tui, update,
+    admin, aggregator, api, barnacle, netpolicy, proxy, response, scanner, sentinel, tui, update,
 };
+use crate::sources::{auditd, falco, firewall, journald, logtamper, memory_sentinel, network, samhain};
 
 /// Run the watchdog runtime. Spawns all monitoring sources, the aggregator,
 /// Slack forwarder, API server, and frontend (TUI or headless). Blocks until

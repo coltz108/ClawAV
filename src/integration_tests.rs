@@ -8,7 +8,7 @@ mod tests {
     use crate::enforcement::capabilities::PlatformCapabilities;
     use crate::correlator::*;
     use crate::forensics;
-    use crate::memory_sentinel::MemoryMap;
+    use crate::sources::memory_sentinel::MemoryMap;
     use crate::enforcement::seccomp;
     use std::time::{Duration, Instant};
 

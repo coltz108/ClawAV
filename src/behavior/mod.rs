@@ -40,7 +40,7 @@ mod financial;
 use std::fmt;
 
 use crate::alerts::Severity;
-use crate::auditd::ParsedEvent;
+use crate::sources::auditd::ParsedEvent;
 
 // Re-export public API from submodules
 pub use social::{check_social_engineering, check_social_engineering_content};

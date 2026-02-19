@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};
 
 use crate::alerts::Severity;
-use crate::auditd::ParsedEvent;
+use crate::sources::auditd::ParsedEvent;
 
 /// A single policy rule loaded from a YAML file.
 ///
@@ -372,7 +372,7 @@ mod tests {
             file_path: None,
             success: true,
             raw: String::new(),
-            actor: crate::auditd::Actor::Unknown,
+            actor: crate::sources::auditd::Actor::Unknown,
             ppid_exe: None,
         }
     }
@@ -385,7 +385,7 @@ mod tests {
             file_path: Some(path.to_string()),
             success: true,
             raw: String::new(),
-            actor: crate::auditd::Actor::Unknown,
+            actor: crate::sources::auditd::Actor::Unknown,
             ppid_exe: None,
         }
     }

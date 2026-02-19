@@ -26,7 +26,7 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::alerts::Severity;
-    use crate::auditd::{Actor, ParsedEvent};
+    use crate::sources::auditd::{Actor, ParsedEvent};
     use crate::behavior;
     use crate::detect::behavior_adapter::BehaviorDetector;
     use crate::detect::traits::DetectionEvent;

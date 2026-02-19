@@ -2,7 +2,7 @@
 // These tests verify the hardcoded behavioral detection rules.
 
 use super::*;
-use crate::auditd::Actor;
+use crate::sources::auditd::Actor;
 
 fn make_exec_event(args: &[&str]) -> ParsedEvent {
     ParsedEvent {
@@ -454,7 +454,7 @@ fn test_sendfile_from_non_interpreter_not_flagged() {
 
 #[test]
 fn test_cred_read_event_unknown_exe() {
-    use crate::auditd::check_tamper_event;
+    use crate::sources::auditd::check_tamper_event;
     let event = ParsedEvent {
         syscall_name: "openat".to_string(),
         command: None,
@@ -472,7 +472,7 @@ fn test_cred_read_event_unknown_exe() {
 
 #[test]
 fn test_cred_read_event_openclaw_gateway() {
-    use crate::auditd::check_tamper_event;
+    use crate::sources::auditd::check_tamper_event;
     let event = ParsedEvent {
         syscall_name: "openat".to_string(),
         command: None,

@@ -226,7 +226,7 @@ pub struct AuditdConfig {
 }
 
 // Network config types moved to network.rs — re-exported for backward compatibility
-pub use crate::network::NetworkConfig;
+pub use crate::sources::network::NetworkConfig;
 
 /// Falco eBPF integration configuration.
 #[derive(Debug, Deserialize, Serialize, Clone)]

@@ -261,7 +261,7 @@ async fn handle(
                 .unwrap()
         }
         "/api/status" => {
-            let parity = crate::auditd::parity_stats_snapshot();
+            let parity = crate::sources::auditd::parity_stats_snapshot();
             let resp = StatusResponse {
                 status: "running",
                 uptime_seconds: ctx.start_time.elapsed().as_secs(),
@@ -310,7 +310,7 @@ async fn handle(
         "/api/security" => {
             let store = ctx.store.lock().await;
             let (info, warn, crit) = store.count_by_severity();
-            let parity = crate::auditd::parity_stats_snapshot();
+            let parity = crate::sources::auditd::parity_stats_snapshot();
             let resp = SecurityResponse {
                 uptime_seconds: ctx.start_time.elapsed().as_secs(),
                 total_alerts: store.len(),
