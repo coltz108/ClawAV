@@ -26,7 +26,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 use tokio::sync::{mpsc, Mutex};
 
-use crate::alerts::{Alert, Severity};
+use super::alerts::{Alert, Severity};
 
 const KEY_PREFIX: &str = "OCAV-";
 const KEY_BYTES: usize = 32; // 256 bits
@@ -217,8 +217,9 @@ pub fn generate_and_show_admin_key(hash_path: &Path) -> Result<bool> {
         let _ = write!(stderr, "Type exactly \"I SAVED MY KEY\" to continue: ");
         let _ = stderr.flush();
         let mut line = String::new();
-        if stdin.lock().read_line(&mut line).is_err() {
-            break; // broken pipe / EOF — let the caller handle it
+        match stdin.lock().read_line(&mut line) {
+            Ok(0) | Err(_) => break, // EOF or broken pipe — non-interactive context
+            _ => {}
         }
         if line.trim() == "I SAVED MY KEY" {
             break;
