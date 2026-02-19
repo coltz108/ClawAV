@@ -273,78 +273,62 @@ clawsudo apt-get update
 ClawTower uses a **three-ring defense model**: enforcement at the boundary, real-time detection in the middle, and periodic auditing as the outer sweep. Everything feeds into a single event pipeline that deduplicates, correlates, and routes alerts to humans.
 
 ```mermaid
-graph TB
-    subgraph ACTORS["Who Triggers Events"]
-        AGENT["AI Agent<br/>(watched UID)"]
-        HUMAN["Human Admin<br/>(CLI / TUI / Slack)"]
-        SYSTEM["OS Kernel<br/>(auditd, inotify, iptables)"]
+graph TD
+    AGENT["AI Agent (watched UID)"]
+    HUMAN["Human Admin (CLI · TUI · Slack)"]
+
+    subgraph R1["Ring 1 — Enforcement"]
+        direction TB
+        CLAWSUDO["clawsudo — sudo gatekeeper<br/>YAML policies · allow / deny / ask"]
+        PROXY["API proxy + prompt firewall<br/>DLP · key vault · 7 threat categories"]
     end
 
-    subgraph RING1["Ring 1 — Enforcement (Boundary)"]
-        direction LR
-        CLAWSUDO["clawsudo<br/>Sudo gatekeeper<br/>YAML policies ➜ allow/deny/ask"]
-        PROXY["API Proxy<br/>Virtual keys · DLP scan<br/>Prompt firewall (7 categories)"]
+    AGENT -->|"sudo"| CLAWSUDO
+    AGENT -->|"API / LLM"| PROXY
+    AGENT -->|"syscalls / files / net"| KERNEL["OS Kernel<br/>auditd · inotify · iptables"]
+
+    subgraph R2["Ring 2 — Real-Time Detection"]
+        direction TB
+        SYSCALL["Syscall analysis<br/>behavior (270 rules) · barnacle (4 DBs)<br/>policy · capability envelope"]
+        FIM["File integrity<br/>sentinel · cognitive baselines<br/>memory sentinel · Falco · Samhain"]
+        NET["Network + auth<br/>iptables parser · host policy<br/>SSH monitor · log tamper"]
     end
 
-    subgraph RING2["Ring 2 — Real-Time Detection"]
-        direction LR
-        AUDITD["Syscall Analysis<br/>Behavior (270 rules)<br/>Barnacle (4 pattern DBs)<br/>Policy · Envelope"]
-        FIM["File Integrity<br/>Sentinel (inotify)<br/>Cognitive baselines<br/>Falco · Samhain"]
-        NET["Network Analysis<br/>iptables parser<br/>Host allow/blocklist<br/>SSH monitor"]
-        MEM["Process Integrity<br/>Memory sentinel<br/>Log tamper detection"]
+    KERNEL --> R2
+
+    subgraph R3["Ring 3 — Periodic Audit"]
+        SCAN["33 security scanners<br/>firewall · SSH · SUID · docker<br/>crontab · packages · persistence"]
     end
 
-    subgraph RING3["Ring 3 — Periodic Audit"]
-        SCANNERS["33 Security Scanners<br/>firewall · SSH · SUID · docker<br/>crontab · packages · persistence<br/>kernel · accounts · AppArmor · ..."]
+    R1 -->|"deny alerts"| RAW
+    R2 -->|"alerts"| RAW
+    R3 -->|"results"| RAW
+
+    subgraph PIPE["Event Pipeline"]
+        direction TB
+        RAW["raw_tx (mpsc, cap 1000)"]
+        AGG["Aggregator — fuzzy dedup · rate limit"]
+        CORR["Correlator — cross-layer scoring<br/>300 → 600 → 900 thresholds"]
+        RESP["Response Engine<br/>Gate (block + ask) · Reactive (contain)"]
+        RAW --> AGG --> CORR --> RESP
     end
 
-    subgraph PIPELINE["Event Pipeline"]
-        RAW["raw_tx<br/>(mpsc, cap=1000)"]
-        AGG["Aggregator<br/>fuzzy dedup · rate limit"]
-        CORR["Correlator<br/>cross-layer threat scoring<br/>300→600→900 thresholds"]
-        RESP["Response Engine<br/>Gate mode (block + ask)<br/>Reactive mode (contain)"]
-    end
-
-    subgraph OUTPUTS["Where Alerts Go"]
-        direction LR
-        TUI["TUI Dashboard<br/>(6 tabs)"]
-        SLACK["Slack<br/>Webhook alerts"]
-        API["REST API<br/>(4 endpoints)"]
-        CHAIN["Audit Chain<br/>HMAC SHA-256<br/>tamper-evident"]
-        SIEM["SIEM Export<br/>CEF · webhook · JSONL"]
-    end
-
-    subgraph TAMPER["Tamper Protection"]
-        direction LR
-        IMMUT["chattr +i<br/>immutable binaries"]
-        ADMINKEY["Admin key<br/>Argon2 · shown once<br/>never stored"]
-        LOCKFILES["Lockfiles<br/>cross-process<br/>containment"]
-    end
-
-    AGENT -->|"sudo cmd"| CLAWSUDO
-    AGENT -->|"API request"| PROXY
-    AGENT -->|"shell / files / net"| SYSTEM
-    HUMAN -->|"manage"| TUI
     HUMAN -->|"approve / deny"| RESP
 
-    SYSTEM --> RING2
-    CLAWSUDO -->|"deny alert"| RAW
-    PROXY -->|"block / redact alert"| RAW
+    subgraph OUT["Where Alerts Go"]
+        direction TB
+        DISPLAY["TUI dashboard (6 tabs) · Slack alerts"]
+        RECORD["REST API · audit chain (HMAC SHA-256)"]
+        EXPORT["SIEM export — CEF · webhook · JSONL"]
+    end
 
-    AUDITD --> RAW
-    FIM --> RAW
-    NET --> RAW
-    MEM --> RAW
-    SCANNERS -->|"every 60-300s"| RAW
+    AGG --> OUT
+    RESP -->|"approved"| CONTAIN["Containment<br/>kill · suspend · drop net<br/>revoke keys · freeze FS · lock clawsudo"]
+    RESP -->|"Critical"| HUMAN
 
-    RAW --> AGG
-    AGG --> CORR
-    AGG --> OUTPUTS
-    CORR -->|"Warning+"| RESP
-    RESP -->|"approved"| CONTAINMENT["Containment<br/>kill · suspend · drop net<br/>revoke keys · freeze FS<br/>lock clawsudo"]
-
-    TAMPER -.->|"protects"| RING1
-    TAMPER -.->|"protects"| CHAIN
+    TAMPER["Tamper Protection<br/>chattr +i · Argon2 admin key · lockfiles"]
+    TAMPER -.->|"protects"| R1
+    TAMPER -.->|"protects"| RECORD
 ```
 
 **Three rings, one pipeline.** Ring 1 (clawsudo + proxy) blocks dangerous actions *before* they execute. Ring 2 (auditd, sentinel, network, memory) catches threats *as they happen*. Ring 3 (33 scanners) sweeps for drift and misconfigurations on a timer. All three rings feed alerts into the same `raw_tx` channel, where the aggregator deduplicates and rate-limits, the correlator scores cross-layer patterns, and the response engine decides whether to block (Gate) or contain (Reactive) — with human approval required for Critical actions.
@@ -354,178 +338,78 @@ graph TB
 ### Detailed Architecture Diagram
 
 ```mermaid
-graph TB
-    subgraph AGENT_ACTIONS["AI Agent Actions"]
-        AA1["Shell commands<br/>(as watched UID)"]
-        AA2["sudo attempts<br/>(via clawsudo)"]
-        AA3["API calls<br/>(via proxy)"]
-        AA4["File writes<br/>(to watched paths)"]
-        AA5["LLM prompts<br/>(outbound requests)"]
-        AA6["Network connections<br/>(outbound URLs)"]
-    end
+graph TD
+    AGENT["AI Agent<br/>shell · sudo · API · files · LLM · net"]
+    ADMIN["Human Admin<br/>CLI · TUI · config · Slack"]
 
-    subgraph ADMIN_ACTIONS["Human Admin Actions"]
-        HA1["CLI subcommands"]
-        HA2["TUI dashboard"]
-        HA3["Admin socket<br/>(Argon2 key auth)"]
-        HA4["Config files<br/>(TOML + YAML)"]
-        HA5["Slack approvals"]
-    end
-
-    subgraph OS_EVENTS["OS-Level Events"]
-        OS1["auditd logs<br/>(SYSCALL/EXECVE/AVC)"]
-        OS2["iptables/UFW logs"]
-        OS3["journald<br/>(kernel + SSH)"]
-        OS4["inotify events"]
-        OS5["Falco eBPF events"]
-        OS6["Samhain FIM events"]
-        OS7["/proc memory maps"]
-    end
-
-    subgraph DETECTION["Detection Engines"]
+    subgraph R1["Ring 1 — Enforcement"]
         direction TB
-
-        subgraph SYSCALL_ANALYSIS["Syscall Analysis Pipeline"]
-            D_AUDITD["auditd.rs<br/>Parse EXECVE records"]
-            D_BEHAVIOR["behavior.rs<br/>~270 hardcoded rules<br/>7 threat categories"]
-            D_BARNACLE["barnacle.rs<br/>4 JSON pattern DBs<br/>injection|commands|privacy|supply-chain"]
-            D_POLICY["policy.rs<br/>User YAML rules"]
-            D_ENVELOPE["agent_envelope.rs<br/>Capability envelope<br/>(known-good allowlist)"]
-        end
-
-        subgraph NETWORK_ANALYSIS["Network Analysis"]
-            D_NETWORK["network.rs<br/>iptables parser"]
-            D_NETPOLICY["netpolicy.rs<br/>Host allowlist/blocklist"]
-            D_JOURNALD_NET["journald.rs<br/>Kernel network logs"]
-        end
-
-        subgraph FILE_INTEGRITY["File Integrity"]
-            D_SENTINEL["sentinel.rs<br/>inotify watcher<br/>shadow + quarantine"]
-            D_COGNITIVE["cognitive.rs<br/>SHA-256 baselines<br/>Identity files"]
-            D_FALCO["falco.rs<br/>Falco JSON parser"]
-            D_SAMHAIN["samhain.rs<br/>Samhain FIM parser"]
-            D_MEMORY["memory_sentinel.rs<br/>Process memory integrity"]
-        end
-
-        subgraph PROXY_LAYER["Proxy and Prompt Layer"]
-            D_PROXY["proxy.rs<br/>DLP scanner<br/>Key vault (virtual to real)"]
-            D_FIREWALL["prompt_firewall.rs<br/>7 threat categories<br/>3-tier enforcement"]
-        end
-
-        subgraph SCANNERS["Periodic Scanners (33)"]
-            D_SCAN["scanner.rs<br/>firewall|auditd|ssh|suid<br/>docker|crontab|persistence<br/>ld_preload|packages|...<br/>Every 60-300s cycle"]
-        end
-
-        subgraph MONITORS["Continuous Monitors"]
-            D_LOGTAMPER["logtamper.rs<br/>Log integrity checks"]
-            D_FIREWALL_MON["firewall.rs<br/>UFW state diffs"]
-            D_SSH["journald.rs<br/>SSH login events"]
-        end
+        CLAWSUDO["clawsudo — sudo gatekeeper<br/>YAML policy · GTFOBins detect · deny-first"]
+        PROXY["API proxy + prompt firewall<br/>DLP · key vault · 7 threat categories"]
     end
 
-    subgraph ENFORCEMENT["Enforcement (clawsudo)"]
-        E_CLAWSUDO["bin/clawsudo.rs<br/>YAML policy eval<br/>deny then allow (first match wins)<br/>Exit: 0=ok, 77=denied, 78=timeout"]
+    AGENT -->|"sudo"| CLAWSUDO
+    AGENT -->|"API / LLM"| PROXY
+    AGENT -->|"syscalls / files / net"| OS
+
+    subgraph OS["OS Kernel Layer"]
+        direction TB
+        OS_SYS["auditd — SYSCALL / EXECVE / AVC"]
+        OS_FS["inotify — file events"]
+        OS_NET["iptables · journald — network · SSH"]
+        OS_EXT["Falco eBPF · Samhain · /proc memory"]
     end
 
-    subgraph PROCESSING["Processing Pipeline"]
-        P_RAW["raw_tx channel<br/>(cap=1000)"]
-        P_AGG["aggregator.rs<br/>Fuzzy dedup (30s/5s/1h)<br/>Rate limit (20/src/60s)<br/>Critical bypasses limits"]
-        P_CORRELATOR["correlator.rs<br/>Cross-layer correlation<br/>Threat score (decay 50/s)<br/>300 to 600 to 900 thresholds"]
-        P_RESPONSE["response.rs<br/>Playbook matching<br/>Gate vs Reactive modes<br/>Human approval flow"]
+    subgraph R2["Ring 2 — Real-Time Detection"]
+        direction TB
+        SYSCALL["Syscall Analysis<br/>behavior (270 rules · 7 categories)<br/>barnacle (4 pattern DBs)<br/>YAML policy · capability envelope"]
+        FILES["File Integrity<br/>sentinel (quarantine + restore)<br/>cognitive baselines · memory sentinel"]
+        NETAUTH["Network + Auth<br/>iptables parser · host policy<br/>SSH monitor · log tamper · UFW diffs"]
     end
 
-    subgraph OUTPUTS["Output Destinations"]
-        O_TUI["tui.rs<br/>6 tabs: Alerts|Network<br/>Falco|FIM|System|Config"]
-        O_SLACK["slack.rs<br/>Webhook alerts<br/>Startup + Heartbeat"]
-        O_API["api.rs<br/>/api/status|alerts<br/>/api/security|health"]
-        O_CHAIN["audit_chain.rs<br/>HMAC SHA-256 chain<br/>Tamper-evident JSONL"]
-        O_SIEM["export.rs<br/>Syslog CEF|Webhook<br/>Rotated JSONL"]
-        O_STDERR["stderr<br/>(headless mode)"]
+    OS_SYS --> SYSCALL
+    OS_FS --> FILES
+    OS_NET --> NETAUTH
+    OS_EXT --> FILES
+
+    subgraph R3["Ring 3 — Periodic Audit"]
+        SCAN["33 scanners — firewall · SSH · SUID<br/>docker · crontab · persistence<br/>packages · kernel · accounts"]
     end
 
-    subgraph CONTAINMENT["Response Actions"]
-        C_KILL["Kill Process"]
-        C_SUSPEND["Suspend Process"]
-        C_DROPNET["Drop Network"]
-        C_REVOKE["Revoke API Keys"]
-        C_FREEZE["Freeze Filesystem"]
-        C_LOCK["Lock Clawsudo"]
+    R1 -->|"deny alerts"| RAW
+    R2 -->|"alerts"| RAW
+    R3 -->|"results"| RAW
+
+    subgraph PIPE["Processing Pipeline"]
+        direction TB
+        RAW["raw_tx (mpsc, cap 1000)"]
+        AGG["Aggregator<br/>fuzzy dedup · rate limit"]
+        CORR["Correlator<br/>cross-layer scoring · 300→600→900"]
+        RESP["Response Engine<br/>Gate (block + ask) · Reactive (contain)"]
+        RAW --> AGG --> CORR --> RESP
     end
 
-    AA1 -->|"syscalls"| OS1
-    AA2 -->|"intercepted"| E_CLAWSUDO
-    AA3 -->|"HTTP request"| D_PROXY
-    AA4 -->|"file events"| OS4
-    AA5 -->|"request body"| D_FIREWALL
-    AA6 -->|"URLs in cmds"| D_NETPOLICY
+    ADMIN -->|"approve / deny"| RESP
 
-    OS1 --> D_AUDITD
-    OS2 --> D_NETWORK
-    OS3 --> D_JOURNALD_NET
-    OS3 --> D_SSH
-    OS4 --> D_SENTINEL
-    OS5 --> D_FALCO
-    OS6 --> D_SAMHAIN
-    OS7 --> D_MEMORY
-
-    D_AUDITD --> D_BEHAVIOR
-    D_AUDITD --> D_BARNACLE
-    D_AUDITD --> D_POLICY
-    D_AUDITD --> D_ENVELOPE
-    D_AUDITD --> D_NETPOLICY
-
-    HA1 -->|"clawtower cmd"| PROCESSING
-    HA2 --> O_TUI
-    HA3 -->|"auth commands"| PROCESSING
-    HA4 -->|"config reload"| DETECTION
-    HA5 -->|"approve/deny"| P_RESPONSE
-
-    D_BEHAVIOR -->|"Alert"| P_RAW
-    D_BARNACLE -->|"Alert"| P_RAW
-    D_POLICY -->|"Alert"| P_RAW
-    D_ENVELOPE -->|"Alert"| P_RAW
-    D_NETWORK -->|"Alert"| P_RAW
-    D_NETPOLICY -->|"Alert"| P_RAW
-    D_SENTINEL -->|"Alert"| P_RAW
-    D_COGNITIVE -->|"Alert"| P_RAW
-    D_FALCO -->|"Alert"| P_RAW
-    D_SAMHAIN -->|"Alert"| P_RAW
-    D_MEMORY -->|"Alert"| P_RAW
-    D_PROXY -->|"Alert"| P_RAW
-    D_FIREWALL -->|"Alert"| P_RAW
-    D_SCAN -->|"Alerts"| P_RAW
-    D_LOGTAMPER -->|"Alert"| P_RAW
-    D_FIREWALL_MON -->|"Alert"| P_RAW
-    D_SSH -->|"Alert"| P_RAW
-
-    E_CLAWSUDO -->|"deny alert"| P_RAW
-    E_CLAWSUDO -->|"allow/deny"| AA2
-
-    P_RAW --> P_AGG
-    P_AGG -->|"alert_tx"| O_TUI
-    P_AGG -->|"alert_tx"| O_STDERR
-    P_AGG -->|"slack_tx"| O_SLACK
-    P_AGG -->|"store"| O_API
-    P_AGG -->|"chain"| O_CHAIN
-    P_AGG -->|"Warning+"| P_RESPONSE
-    P_AGG -.->|"feed"| P_CORRELATOR
-    P_AGG -->|"export"| O_SIEM
-
-    P_RESPONSE -->|"Critical"| HA5
-    P_RESPONSE -->|"approved"| CONTAINMENT
-
-    D_FIREWALL -->|"Block"| AA3
-    D_PROXY -->|"Block/Redact"| AA3
-
-    subgraph HARDENING["Tamper Protection"]
-        H_CHATTR["chattr +i<br/>Immutable files"]
-        H_APPARMOR["AppArmor profiles<br/>+ pam_cap fallback"]
-        H_ADMINKEY["Admin key<br/>Argon2 hash<br/>(displayed once, never stored)"]
+    subgraph OUT["Outputs"]
+        direction TB
+        DISPLAY["TUI dashboard (6 tabs) · Slack alerts"]
+        RECORD["REST API · audit chain (HMAC SHA-256)"]
+        EXPORT["SIEM export — CEF · webhook · JSONL"]
     end
 
-    HARDENING -.->|"protects"| DETECTION
-    HARDENING -.->|"protects"| E_CLAWSUDO
-    HARDENING -.->|"protects"| O_CHAIN
+    AGG --> OUT
+
+    subgraph CONTAIN["Containment"]
+        ACTIONS["kill · suspend · drop network<br/>revoke keys · freeze FS · lock clawsudo"]
+    end
+
+    RESP -->|"approved"| CONTAIN
+    RESP -->|"Critical"| ADMIN
+
+    TAMPER["Tamper Protection<br/>chattr +i · Argon2 admin key · AppArmor"]
+    TAMPER -.->|"protects"| R1
+    TAMPER -.->|"protects"| RECORD
 ```
 
 ### Exhaustive Input Sources
