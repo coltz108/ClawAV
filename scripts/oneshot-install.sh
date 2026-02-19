@@ -239,7 +239,7 @@ elif [[ "$EXISTING_INSTALL" == "partial" && "$MODE" == "install" ]]; then
     echo -e "    ${DIM}Admin key${NC}  $([ "$HAS_KEY" = true ] && echo "${GREEN}✓${NC}" || echo "${RED}✗${NC}")"
     echo ""
     if confirm "Proceed with fresh install? (will overwrite existing files) [y/n]"; then
-        HAD_ADMIN_KEY=false
+        : # HAD_ADMIN_KEY stays based on actual key presence on disk
     else
         echo "Aborted."
         exit 0
@@ -1000,15 +1000,17 @@ else
     phase_bar 4 "Download" "Configure" "Lock Down" "Admin Key"
     danger_header "Save Your Admin Key" "You will not see it again"
 
-    echo -e "  ${RED}┃${NC} Your admin key was displayed when ClawTower first started."
+    echo -e "  ${RED}┃${NC} ClawTower generated a new admin key on first startup."
     echo -e "  ${RED}┃${NC} Check the service logs:"
     echo -e "  ${RED}┃${NC}"
     echo -e "  ${RED}┃${NC}   ${BOLD}sudo journalctl -u clawtower -n 50 | grep OCAV-${NC}"
     echo -e "  ${RED}┃${NC}"
-    echo -e "  ${RED}┃${NC} ${DIM}Without this key:${NC}"
-    echo -e "  ${RED}┃${NC} ${DIM}  You cannot pause, configure, or manage ClawTower${NC}"
-    echo -e "  ${RED}┃${NC} ${DIM}  You cannot update or uninstall it${NC}"
-    echo -e "  ${RED}┃${NC} ${DIM}  Your only option is recovery mode (boot from USB)${NC}"
+    echo -e "  ${RED}┃${NC} ${DIM}This key is required for ClawTower's admin socket commands${NC}"
+    echo -e "  ${RED}┃${NC} ${DIM}(pause, resume, config changes via the clawtower CLI).${NC}"
+    echo -e "  ${RED}┃${NC}"
+    echo -e "  ${RED}┃${NC} ${DIM}Your human admin account with sudo can still manage the${NC}"
+    echo -e "  ${RED}┃${NC} ${DIM}service directly (systemctl, chattr, config edits).${NC}"
+    echo -e "  ${RED}┃${NC} ${DIM}The agent account (openclaw) cannot manage ClawTower at all.${NC}"
     echo ""
 
     # Show the key right here if we can find it
