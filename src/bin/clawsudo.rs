@@ -465,6 +465,9 @@ fn main() -> ExitCode {
             // Execute via sudo
             let status = std::process::Command::new("sudo")
                 .args(&args)
+                .env_clear()
+                .env("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+                .env("TERM", std::env::var("TERM").unwrap_or_else(|_| "xterm".to_string()))
                 .status();
             match status {
                 Ok(s) if s.success() => ExitCode::from(EXIT_OK),

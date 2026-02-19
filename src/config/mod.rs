@@ -407,8 +407,16 @@ pub use self::openclaw::OpenClawConfig;
 /// Apply all `.toml` overlays from a config.d/ directory to a base TOML value.
 /// Files are loaded in alphabetical order. No-op if the directory doesn't exist.
 fn apply_config_d_overlays(base: &mut toml::Value, config_d: &Path) -> Result<()> {
-    if !config_d.exists() || !config_d.is_dir() {
+    // Use symlink_metadata to avoid following a symlinked config.d directory.
+    let dir_meta = match std::fs::symlink_metadata(config_d) {
+        Ok(m) => m,
+        Err(_) => return Ok(()), // directory doesn't exist — no-op
+    };
+    if !dir_meta.file_type().is_dir() {
         return Ok(());
+    }
+    if dir_meta.file_type().is_symlink() {
+        anyhow::bail!("config.d must not be a symlink: {}", config_d.display());
     }
 
     let mut entries: Vec<_> = std::fs::read_dir(config_d)
@@ -424,10 +432,19 @@ fn apply_config_d_overlays(base: &mut toml::Value, config_d: &Path) -> Result<()
     entries.sort_by_key(|e| e.file_name());
 
     for entry in entries {
-        let overlay_content = std::fs::read_to_string(entry.path())
-            .with_context(|| format!("Failed to read overlay: {}", entry.path().display()))?;
+        let entry_path = entry.path();
+        // Reject symlinks in config.d — prevents an attacker from pointing
+        // overlays at arbitrary files (e.g. /etc/shadow parsed as TOML).
+        if let Ok(m) = std::fs::symlink_metadata(&entry_path) {
+            if m.file_type().is_symlink() {
+                eprintln!("Warning: skipping symlink in config.d: {}", entry_path.display());
+                continue;
+            }
+        }
+        let overlay_content = std::fs::read_to_string(&entry_path)
+            .with_context(|| format!("Failed to read overlay: {}", entry_path.display()))?;
         let overlay: toml::Value = toml::from_str(&overlay_content)
-            .with_context(|| format!("Failed to parse overlay: {}", entry.path().display()))?;
+            .with_context(|| format!("Failed to parse overlay: {}", entry_path.display()))?;
         merge_toml(base, overlay);
     }
 

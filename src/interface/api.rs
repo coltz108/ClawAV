@@ -142,13 +142,15 @@ struct ErrorResponse {
 }
 
 fn json_response(status: StatusCode, body: String, cors_origin: Option<&str>) -> Response<Body> {
-    let origin = cors_origin.unwrap_or("*");
-    Response::builder()
+    let mut builder = Response::builder()
         .status(status)
-        .header("Content-Type", "application/json")
-        .header("Access-Control-Allow-Origin", origin)
-        .body(Body::from(body))
-        .unwrap()
+        .header("Content-Type", "application/json");
+    // Only set CORS header when explicitly configured — wildcard default
+    // would let any website read security alerts cross-origin.
+    if let Some(origin) = cors_origin {
+        builder = builder.header("Access-Control-Allow-Origin", origin);
+    }
+    builder.body(Body::from(body)).unwrap()
 }
 
 /// Consolidated context for the API handler, holding all shared state.
@@ -803,12 +805,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_cors_header_wildcard_by_default() {
+    async fn test_cors_header_absent_by_default() {
+        // No CORS header when cors_origin is not configured — prevents
+        // wildcard cross-origin access to security data.
         let ctx = test_ctx("");
         let req = Request::builder().uri("/api/health").body(Body::empty()).unwrap();
         let resp = handle(req, ctx).await.unwrap();
-        let cors = resp.headers().get("Access-Control-Allow-Origin").unwrap().to_str().unwrap();
-        assert_eq!(cors, "*");
+        assert!(resp.headers().get("Access-Control-Allow-Origin").is_none(),
+            "CORS header should be absent when cors_origin is not configured");
     }
 
     #[test]
