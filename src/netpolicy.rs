@@ -49,6 +49,14 @@ impl NetPolicy {
                 });
 
                 if host_allowed {
+                    // If allowed_ports is non-empty, also require port match
+                    if !self.allowed_ports.is_empty() && !self.allowed_ports.contains(&port) {
+                        return Some(Alert::new(
+                            Severity::Critical,
+                            "netpolicy",
+                            &format!("Blocked outbound connection to {}:{} — port {} not in allowlist", host, port, port),
+                        ));
+                    }
                     None
                 } else {
                     Some(Alert::new(
@@ -234,8 +242,8 @@ mod tests {
     #[test]
     fn test_allowlist_exact_host_different_port() {
         let policy = make_allowlist_policy();
-        // allowed host but port not in allowed_ports — still allowed (port check not enforced in current impl)
-        assert!(policy.check_connection("api.anthropic.com", 80).is_none());
+        // allowed host but port 80 not in allowed_ports [443] — must be blocked
+        assert!(policy.check_connection("api.anthropic.com", 80).is_some(), "Port 80 not in allowed_ports [443]");
     }
 
     #[test]
@@ -490,5 +498,30 @@ mod tests {
         });
         // Everything passes in empty blocklist
         assert!(policy.check_connection("anything.com", 443).is_none());
+    }
+
+    #[test]
+    fn test_allowlist_port_not_in_allowed_is_blocked() {
+        let policy = make_allowlist_policy(); // allowed_ports: [443]
+        let result = policy.check_connection("api.anthropic.com", 8080);
+        assert!(result.is_some(), "Allowed host on disallowed port must be blocked");
+    }
+
+    #[test]
+    fn test_allowlist_empty_ports_allows_all_ports() {
+        let policy = NetPolicy::from_config(&NetPolicyConfig {
+            enabled: true,
+            allowed_hosts: vec!["api.anthropic.com".to_string()],
+            allowed_ports: vec![],
+            blocked_hosts: Vec::new(),
+            mode: "allowlist".to_string(),
+        });
+        assert!(policy.check_connection("api.anthropic.com", 8080).is_none());
+    }
+
+    #[test]
+    fn test_allowlist_allowed_host_allowed_port() {
+        let policy = make_allowlist_policy();
+        assert!(policy.check_connection("api.anthropic.com", 443).is_none());
     }
 }
