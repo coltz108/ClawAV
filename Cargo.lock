@@ -236,7 +236,7 @@ dependencies = [
 
 [[package]]
 name = "clawtower"
-version = "0.5.2-beta"
+version = "0.5.3-beta"
 dependencies = [
  "anyhow",
  "argon2",
