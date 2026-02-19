@@ -13,7 +13,7 @@
 //! sending violations to the alert pipeline.
 
 use crate::alerts::{Alert, Severity};
-use crate::capabilities::PlatformCapabilities;
+use crate::enforcement::capabilities::PlatformCapabilities;
 use crate::config::MemorySentinelConfig;
 use std::fs;
 use std::io;

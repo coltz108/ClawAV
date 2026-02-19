@@ -19,8 +19,8 @@ use std::path::Path;
 use std::process::Command;
 
 /// Embedded profiles — compiled into the binary via include_str!().
-const PROFILE_OPENCLAW: &str = include_str!("../apparmor/usr.bin.openclaw");
-const PROFILE_PROTECT: &str = include_str!("../apparmor/etc.clawtower.protect");
+const PROFILE_OPENCLAW: &str = include_str!("../../apparmor/usr.bin.openclaw");
+const PROFILE_PROTECT: &str = include_str!("../../apparmor/etc.clawtower.protect");
 
 // Destination paths in /etc/apparmor.d/
 const DST_OPENCLAW: &str = "/etc/apparmor.d/usr.bin.openclaw";

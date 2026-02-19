@@ -5,11 +5,11 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::capabilities::PlatformCapabilities;
+    use crate::enforcement::capabilities::PlatformCapabilities;
     use crate::correlator::*;
     use crate::forensics;
     use crate::memory_sentinel::MemoryMap;
-    use crate::seccomp;
+    use crate::enforcement::seccomp;
     use std::time::{Duration, Instant};
 
     fn make_event(source: EventSource, kind: EventKind, pid: u32, score: f64) -> Event {

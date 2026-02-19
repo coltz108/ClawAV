@@ -8,7 +8,7 @@
 //! and emergency stop. Every function checks runtime capabilities and falls back
 //! gracefully through: cgroup v2 → cgroup v1 → userspace (SIGSTOP / iptables).
 
-use crate::capabilities::PlatformCapabilities;
+use crate::enforcement::capabilities::PlatformCapabilities;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};

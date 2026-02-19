@@ -437,7 +437,7 @@ pub async fn dispatch_subcommand(subcommand: &str, rest_args: &[String], all_arg
         }
         "setup-apparmor" => {
             let quiet = rest_args.iter().any(|a| a == "--quiet" || a == "-q");
-            let result = crate::apparmor::setup(quiet);
+            let result = crate::enforcement::apparmor::setup(quiet);
             if !result.any_protection() {
                 eprintln!("No AppArmor or pam_cap protection could be applied.");
                 std::process::exit(1);

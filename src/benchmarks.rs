@@ -5,7 +5,7 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::capabilities::PlatformCapabilities;
+    use crate::enforcement::capabilities::PlatformCapabilities;
     use crate::correlator::*;
     use crate::forensics;
     use crate::memory_sentinel::MemoryMap;

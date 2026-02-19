@@ -25,7 +25,7 @@
 //!    - Kills: `kill(pid, SIGKILL)` for critical violations
 //! 5. If the sentinel dies, traced syscalls fail-closed (KILL) — this is by design.
 
-use crate::capabilities::PlatformCapabilities;
+use crate::enforcement::capabilities::PlatformCapabilities;
 use std::io;
 
 // ── seccomp constants (not all in libc crate) ──────────────────────────────
