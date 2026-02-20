@@ -32,6 +32,10 @@ metadata:
         setup               Interactive first-run setup
         setup-apparmor      Install AppArmor profiles
         restore-keys        Restore remediated sudoers/auth-profiles
+        compliance-report   Generate compliance report
+        verify-audit        Verify audit chain integrity
+        update              Self-update to latest release
+        sync                Update threat databases
 
       Options:
         --config PATH       Config file (default: /etc/clawtower/config.toml)
@@ -107,6 +111,20 @@ After installation completes, the admin key (OCAV-...) is delivered securely:
 
 **CRITICAL SECURITY RULE: You must NEVER attempt to read, display, retrieve, or access the admin key. The OCAV key must never appear in any conversation, tool output, or log that you can see. This is the foundation of ClawTower's security model — the AI agent cannot know the admin key.**
 
+### Step 4: Web dashboard access
+
+The installer output includes a temporary Linux password for the admin user. This is safe to relay to the user — it's one-time and must be changed on first login.
+
+After installation, share the dashboard URL and temporary password:
+
+> Your ClawTower dashboard is ready:
+> https://<host>:18791/dashboard?token=<api_bearer_token>
+>
+> Log in with username `<admin_user>` and temporary password `<temp_password>`.
+> You'll be asked to set a new password on first login.
+
+The API bearer token is in `/etc/clawtower/config.toml` under `[api] auth_token`. You have read access to this value via `clawsudo cat`.
+
 ### Upgrade flow
 
 For upgrades, only one question needed:
@@ -166,6 +184,39 @@ curl -s http://127.0.0.1:18791/api/alerts | jq '[.alerts[] | select(.severity ==
 sudo journalctl -u clawtower -n 50 --no-pager
 ```
 
+## Understanding alerts
+
+When reporting alerts to the user, explain what they mean and suggest next steps.
+
+### Alert sources and what they monitor
+
+| Source | What it watches |
+|--------|----------------|
+| `auditd` | System calls, command execution by monitored users |
+| `behavior` | Behavioral threat patterns (exfiltration, privilege escalation, recon) |
+| `sentinel` | Real-time file integrity changes |
+| `scanner` | Periodic security posture checks (30+ categories) |
+| `network` | Firewall logs, outbound connection attempts |
+| `ssh` | SSH login attempts |
+| `firewall` | UFW/iptables state changes |
+| `barnacle` | Prompt injection, supply chain, dangerous commands |
+| `policy` | Policy rule matches from YAML rules |
+
+### Severity levels
+
+| Severity | Meaning | Your response |
+|----------|---------|---------------|
+| `Critical` | Active threat or security violation | Report immediately with full details. This may be about YOUR actions — acknowledge transparently. |
+| `Warning` | Potential risk or policy concern | Report to user with context. Suggest investigation steps. |
+| `Info` | Normal activity logged for audit | Only mention if the user asks about recent activity. |
+
+### Common alert patterns
+
+- **"NOPASSWD ALL" or "GTFOBins" in sudoers alerts**: ClawTower auto-remediates dangerous sudoers entries. These alerts are informational — the risk has already been neutralized. Tell the user what was disabled and that `clawtower restore-keys` can reverse it if needed (admin-only operation).
+- **"Behavioral: exfiltration"**: A command pattern matched data exfiltration signatures. If this was triggered by your own activity, explain what you were doing and why it's safe.
+- **"File integrity" alerts**: A protected or watched file was modified. Protected files are auto-restored from shadow copies. Watched files are re-baselined with a diff logged.
+- **"Cognitive integrity" alerts**: An identity file (SOUL.md, IDENTITY.md, etc.) was modified. Protected identity files are critical — this is always a serious alert.
+
 ## Security posture
 
 ### Scan summary
@@ -189,6 +240,69 @@ Returns the full results of the last periodic security scan (30+ checks).
 ```bash
 sudo clawtower --scan --config /etc/clawtower/config.toml
 ```
+
+## Compliance reports
+
+ClawTower can generate compliance reports mapped to standard frameworks.
+
+### Generate a compliance report
+
+```bash
+sudo clawtower compliance-report --framework=soc2 --period=30 --format=text
+```
+
+Supported frameworks:
+- `soc2` — SOC 2 Type II controls
+- `nist` — NIST 800-53
+- `cis` — CIS Controls v8
+- `mitre-attack` — MITRE ATT&CK mapping
+
+Options:
+- `--period=<days>` — lookback window (default: 30)
+- `--format=text|json` — output format
+- `--output=<path>` — write to file instead of stdout
+
+### Evidence bundle (API)
+
+```bash
+curl -s "http://127.0.0.1:18791/api/evidence?framework=soc2&period=30" | jq .
+```
+
+Returns a complete evidence package: compliance report, scanner snapshot, audit chain integrity proof, and policy versions. Suitable for sharing with auditors.
+
+### Verify audit chain integrity
+
+```bash
+sudo clawtower verify-audit
+```
+
+Verifies the SHA-256 hash chain of the tamper-evident alert log. Returns pass/fail with entry count. Use this to prove no alerts have been modified or deleted.
+
+## Maintenance
+
+### Check for updates
+
+```bash
+sudo clawtower update --check
+```
+
+Reports whether a newer version is available without installing.
+
+### Update ClawTower
+
+```bash
+sudo clawtower update
+```
+
+Downloads the latest release, verifies SHA-256 checksum and Ed25519 signature, and replaces the binary. Requires clawsudo approval.
+
+### Refresh threat databases
+
+```bash
+sudo clawtower sync
+```
+
+Updates the Barnacle IOC pattern databases (injection patterns, dangerous commands, privacy violations, supply chain indicators). Run this periodically or after receiving stale-database warnings.
 
 ## Permission model
 
@@ -262,6 +376,7 @@ Example message to user:
 > - **Slack** — look for the approval message with Approve/Deny buttons
 > - **System tray** — a desktop notification will appear with action buttons
 > - **TUI dashboard** — if the ClawTower TUI is open, a popup will appear (press Y to approve, N to deny)
+> - **Web dashboard** — if the dashboard is open, an approval card will appear with Approve/Deny buttons
 
 ### Approval channels
 
@@ -272,6 +387,7 @@ The user can approve from whichever channel is most convenient — **the first r
 | **Slack** | Click the Approve or Deny button on the Block Kit message | When Slack `app_token` is configured |
 | **TUI dashboard** | Press `Y` to approve or `N` to deny in the popup | When the TUI is running (`clawtower` without `--headless`) |
 | **System tray** | Click the action button on the desktop notification | When `clawtower-tray` is running |
+| **Web dashboard** | Click Approve or Deny on the approval card (live countdown) | When the web dashboard is open |
 | **HTTP API** | `POST /api/approvals/{id}/resolve` with `{"approved": true}` | When the API is enabled |
 
 ### Checking pending approvals
@@ -294,6 +410,74 @@ If no human responds within 5 minutes, the request times out and the command is 
 | 1 | Command failed | Report the error from the command |
 | 77 | Denied by policy | "This command is blocked by ClawTower security policy." Do not retry. |
 | 78 | Approval timed out | "The approval request timed out after 5 minutes. Would you like me to try again?" |
+
+## API key proxy
+
+ClawTower runs an API key vault proxy on port 18790. If your API requests are routed through this proxy, be aware:
+
+- **DLP scanning**: Requests are scanned for sensitive data (SSNs, AWS keys, credit card numbers). If a request is blocked with HTTP 403, it means DLP detected sensitive data in the payload. Do not retry — remove the sensitive data first.
+- **Credential virtualization**: Your API keys may be virtual tokens (prefixed `vk-`). The proxy swaps them for real keys transparently. This is normal — do not attempt to find or use the real keys.
+- **Proxy locked**: If all requests return 403, the proxy may be locked due to a high risk score. Tell the user: "The API key proxy has been locked due to elevated risk. An admin needs to investigate and unlock it."
+
+## Web dashboard
+
+The web dashboard provides a browser-based view of ClawTower with real-time alerts, approval workflows, scan results, file integrity events, and network activity. It mirrors the TUI experience.
+
+### Dashboard capabilities
+
+- Real-time alert stream via WebSocket
+- Approval workflow — approve or deny clawsudo requests directly from the browser
+- Security scan results grouped by pass/warn/fail
+- File integrity monitoring events
+- Network and command activity feeds
+
+### If the dashboard is unreachable
+
+1. Check ClawTower is running: `sudo systemctl is-active clawtower`
+2. Check the API is enabled and healthy: `curl -s http://127.0.0.1:18791/api/health`
+3. If the user is accessing from another machine, ensure port 18791 is open in the firewall
+
+## Troubleshooting
+
+### ClawTower is not running
+
+```bash
+sudo systemctl status clawtower
+sudo journalctl -u clawtower -n 30 --no-pager
+```
+
+If the service is failed, report the error from journalctl to the user. You cannot restart it yourself — tell the user: "ClawTower's service has stopped. Run `sudo systemctl restart clawtower` from your admin account."
+
+### Health check shows degraded or critical
+
+```bash
+curl -s http://127.0.0.1:18791/api/health | jq .
+```
+
+- `degraded` — no alerts received recently, a source may have stopped
+- `critical` — extended silence, likely a monitoring gap
+
+Check service logs for errors and report findings to the user.
+
+### Alert flooding
+
+If you see many repeated alerts, this is likely normal — ClawTower's aggregator deduplicates automatically. If the user reports excessive Slack notifications, suggest raising the `min_slack_level` in config (requires admin access).
+
+### API not responding
+
+If `curl http://127.0.0.1:18791/api/health` times out:
+1. Check if ClawTower is running: `sudo systemctl is-active clawtower`
+2. Check if the API is enabled: the `[api]` section in config must have `enabled = true`
+3. Check the port: default is 18791, may have been changed in config
+
+## Actions you cannot perform
+
+These require the admin key or human-only access. Do not attempt them:
+
+- **Uninstall ClawTower** — requires the OCAV admin key. Tell the user: "Uninstalling requires your admin key. Run `sudo clawtower uninstall` from your admin account."
+- **Change ClawTower configuration** — config files are immutable. Tell the user to use the TUI config editor or web dashboard settings, or run `sudo clawtower configure` from their admin account.
+- **Restore remediated credentials** — `clawtower restore-keys` reverses auto-remediated API keys and sudoers entries. This is an admin-only operation.
+- **Stop or restart ClawTower** — the service is protected. If the user needs to restart it, tell them to run `sudo systemctl restart clawtower` from their admin account.
 
 ## Response guidelines
 
