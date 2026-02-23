@@ -1,0 +1,953 @@
+openapi: 3.0.3
+info:
+  title: ClawTower API
+  description: |
+    ClawTower is a tamper-proof, OS-level security watchdog for AI agents.
+    It monitors the host system for threats, policy violations, and tampering,
+    then alerts via TUI dashboard, Slack, and this HTTP REST API.
+
+    The API runs on a configurable bind address (default `127.0.0.1:18791`).
+    All endpoints except `/api/health` and webhook hooks require Bearer token
+    authentication when `auth_token` is configured.
+  version: 0.5.7-beta
+  contact:
+    name: JR Morton
+  license:
+    name: AGPL-3.0-or-later
+
+servers:
+  - url: http://127.0.0.1:18791
+    description: Default local API server
+
+tags:
+  - name: health
+    description: Health and status checks
+  - name: alerts
+    description: Alert retrieval and security posture
+  - name: scans
+    description: Periodic security scanner results
+  - name: pending
+    description: Pending response actions (approve/deny containment)
+  - name: evidence
+    description: Enterprise compliance evidence bundles
+  - name: approvals
+    description: Approval orchestrator for agent commands
+  - name: hooks
+    description: Incoming webhook callbacks (Slack, Discord)
+
+security:
+  - bearerAuth: []
+
+paths:
+  # ──────────────────────────────────────────────
+  # Health & Status
+  # ──────────────────────────────────────────────
+
+  /api/health:
+    get:
+      operationId: healthCheck
+      summary: Health check
+      description: |
+        Lightweight health probe. Returns uptime, version, and the age of the
+        most recent alert. **Auth-exempt** — always accessible without a token.
+      tags: [health]
+      security: []
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /api/status:
+    get:
+      operationId: getStatus
+      summary: System status
+      description: |
+        Returns overall system status including uptime, version, active module
+        flags, and auditd parity counters (mismatches between expected and
+        observed syscall events).
+      tags: [health]
+      responses:
+        '200':
+          description: System status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ──────────────────────────────────────────────
+  # Alerts & Security Posture
+  # ──────────────────────────────────────────────
+
+  /api/alerts:
+    get:
+      operationId: getAlerts
+      summary: Recent alerts
+      description: |
+        Returns the last 100 alerts from the ring buffer in chronological order.
+        Each alert includes timestamp, severity (`INFO`/`WARN`/`CRIT`), source
+        module, and message.
+      tags: [alerts]
+      responses:
+        '200':
+          description: Alert list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AlertJson'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/security:
+    get:
+      operationId: getSecurityPosture
+      summary: Security posture summary
+      description: |
+        Aggregated security posture: total alert count, breakdown by severity
+        and source module, uptime, and auditd parity counters.
+      tags: [alerts]
+      responses:
+        '200':
+          description: Security posture
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ──────────────────────────────────────────────
+  # Scanner Results
+  # ──────────────────────────────────────────────
+
+  /api/scans:
+    get:
+      operationId: getScanResults
+      summary: Latest scanner results
+      description: |
+        Returns the most recent results from all 30+ periodic security scanners
+        (firewall, SUID binaries, kernel modules, Docker security, etc.).
+        Each result has a category, status (`Pass`/`Warn`/`Fail`), details, and timestamp.
+      tags: [scans]
+      responses:
+        '200':
+          description: Scan results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScanResultJson'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ──────────────────────────────────────────────
+  # Pending Response Actions
+  # ──────────────────────────────────────────────
+
+  /api/pending:
+    get:
+      operationId: getPendingActions
+      summary: List pending containment actions
+      description: |
+        Returns all pending response actions awaiting human approval. Each action
+        includes proposed containment steps (kill process, drop network, revoke
+        API keys, etc.), the triggering threat, and how long it has been waiting.
+      tags: [pending]
+      responses:
+        '200':
+          description: Pending actions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PendingActionJson'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/pending/{id}/approve:
+    post:
+      operationId: approvePendingAction
+      summary: Approve a pending action
+      description: |
+        Approves a pending containment action, allowing the response engine to
+        execute the proposed actions (kill process, drop network, etc.).
+      tags: [pending]
+      parameters:
+        - $ref: '#/components/parameters/ActionId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveBody'
+      responses:
+        '200':
+          description: Action approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolveResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/pending/{id}/deny:
+    post:
+      operationId: denyPendingAction
+      summary: Deny a pending action
+      description: |
+        Denies a pending containment action. The proposed actions will not be
+        executed and the pending entry is resolved.
+      tags: [pending]
+      parameters:
+        - $ref: '#/components/parameters/ActionId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveBody'
+      responses:
+        '200':
+          description: Action denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolveResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  # ──────────────────────────────────────────────
+  # Evidence Bundle
+  # ──────────────────────────────────────────────
+
+  /api/evidence:
+    get:
+      operationId: getEvidenceBundle
+      summary: Enterprise compliance evidence bundle
+      description: |
+        Generates a compliance evidence bundle for auditors. Includes a
+        framework-specific compliance report, scanner snapshot, audit chain
+        integrity proof, and policy version inventory.
+
+        Supported frameworks: `soc2`, `nist800-53`, `cis-v8`, `mitre-attack`.
+      tags: [evidence]
+      parameters:
+        - name: framework
+          in: query
+          schema:
+            type: string
+            default: soc2
+            enum: [soc2, nist800-53, cis-v8, mitre-attack]
+          description: Compliance framework to generate the report for
+        - name: period
+          in: query
+          schema:
+            type: integer
+            default: 30
+          description: Reporting period in days
+      responses:
+        '200':
+          description: Evidence bundle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceBundle'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ──────────────────────────────────────────────
+  # Approval Orchestrator
+  # ──────────────────────────────────────────────
+
+  /api/approvals:
+    post:
+      operationId: submitApproval
+      summary: Submit an approval request
+      description: |
+        Submits a new approval request (e.g., an AI agent requesting permission
+        to run a privileged command). Returns the request ID for polling.
+        The request is broadcast to configured channels (Slack, Discord, API).
+      tags: [approvals]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovalSubmitBody'
+      responses:
+        '200':
+          description: Approval request submitted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id:
+                    type: string
+                    description: UUID of the created approval request
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/approvals/{id}:
+    get:
+      operationId: getApprovalStatus
+      summary: Poll approval status
+      description: |
+        Returns the current status of an approval request. Poll this endpoint
+        to check whether a request has been approved, denied, or timed out.
+      tags: [approvals]
+      parameters:
+        - $ref: '#/components/parameters/ApprovalId'
+      responses:
+        '200':
+          description: Approval status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalStatusResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/approvals/{id}/resolve:
+    post:
+      operationId: resolveApproval
+      summary: Resolve an approval request
+      description: |
+        Approves or denies an approval request via the API. This is the
+        programmatic equivalent of clicking Approve/Deny in Slack.
+      tags: [approvals]
+      parameters:
+        - $ref: '#/components/parameters/ApprovalId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovalResolveBody'
+      responses:
+        '200':
+          description: Approval resolved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  # ──────────────────────────────────────────────
+  # Webhook Hooks (auth-exempt)
+  # ──────────────────────────────────────────────
+
+  /api/hooks/slack:
+    post:
+      operationId: slackWebhook
+      summary: Slack interactive callback
+      description: |
+        Receives Slack interactive message callbacks (button clicks for
+        Approve/Deny). Validates `X-Slack-Signature` when a signing secret
+        is configured. **Auth-exempt**.
+      tags: [hooks]
+      security: []
+      parameters:
+        - name: X-Slack-Request-Timestamp
+          in: header
+          schema:
+            type: string
+          description: Slack-provided request timestamp for signature verification
+        - name: X-Slack-Signature
+          in: header
+          schema:
+            type: string
+          description: Slack HMAC-SHA256 signature (`v0=...`)
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: string
+              description: URL-encoded Slack interaction payload
+      responses:
+        '200':
+          description: Callback processed (empty body per Slack spec)
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Invalid Slack signature
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/hooks/discord:
+    post:
+      operationId: discordWebhook
+      summary: Discord interaction callback (stub)
+      description: |
+        Placeholder for Discord interaction callbacks. Currently returns
+        501 Not Implemented. **Auth-exempt**.
+      tags: [hooks]
+      security: []
+      responses:
+        '501':
+          description: Not implemented
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: discord webhook not implemented
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        Static API token configured in `config.toml` under `[api] auth_token`.
+        Verified using constant-time comparison to prevent timing attacks.
+        When `auth_token` is empty, authentication is disabled.
+
+  parameters:
+    ActionId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Pending action UUID
+
+    ApprovalId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Approval request UUID
+
+  schemas:
+    # ── Health & Status ─────────────────────────
+
+    HealthResponse:
+      type: object
+      required: [healthy, uptime_seconds, version]
+      properties:
+        healthy:
+          type: boolean
+        uptime_seconds:
+          type: integer
+          format: int64
+        version:
+          type: string
+          example: 0.5.7-beta
+        last_alert_age_seconds:
+          type: integer
+          format: int64
+          nullable: true
+          description: Seconds since the most recent alert, or null if no alerts
+
+    StatusResponse:
+      type: object
+      required: [status, uptime_seconds, version, modules, parity]
+      properties:
+        status:
+          type: string
+          enum: [running]
+        uptime_seconds:
+          type: integer
+          format: int64
+        version:
+          type: string
+          example: 0.5.7-beta
+        modules:
+          $ref: '#/components/schemas/Modules'
+        parity:
+          $ref: '#/components/schemas/ParityStatus'
+
+    Modules:
+      type: object
+      required: [auditd, network, behavior, firewall]
+      properties:
+        auditd:
+          type: boolean
+        network:
+          type: boolean
+        behavior:
+          type: boolean
+        firewall:
+          type: boolean
+
+    ParityStatus:
+      type: object
+      description: |
+        Auditd parity counters — tracks mismatches between expected and
+        observed syscall events to detect audit evasion.
+      required: [mismatches_total, alerts_emitted, alerts_suppressed]
+      properties:
+        mismatches_total:
+          type: integer
+          format: int64
+        alerts_emitted:
+          type: integer
+          format: int64
+        alerts_suppressed:
+          type: integer
+          format: int64
+
+    # ── Alerts ──────────────────────────────────
+
+    AlertJson:
+      type: object
+      required: [ts, severity, source, message]
+      properties:
+        ts:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp
+        severity:
+          type: string
+          enum: [INFO, WARN, CRIT]
+        source:
+          type: string
+          description: |
+            Module that generated the alert (e.g., `auditd`, `behavior`,
+            `sentinel`, `scan:firewall`, `proxy`, `logtamper`)
+        message:
+          type: string
+
+    SecurityResponse:
+      type: object
+      required: [uptime_seconds, total_alerts, alerts_by_severity, alerts_by_source, parity]
+      properties:
+        uptime_seconds:
+          type: integer
+          format: int64
+        total_alerts:
+          type: integer
+        alerts_by_severity:
+          $ref: '#/components/schemas/SeverityCounts'
+        alerts_by_source:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Alert count keyed by source module name
+        parity:
+          $ref: '#/components/schemas/ParityStatus'
+
+    SeverityCounts:
+      type: object
+      required: [info, warning, critical]
+      properties:
+        info:
+          type: integer
+        warning:
+          type: integer
+        critical:
+          type: integer
+
+    # ── Scans ───────────────────────────────────
+
+    ScanResultJson:
+      type: object
+      required: [category, status, details, timestamp]
+      properties:
+        category:
+          type: string
+          description: 'Scanner category (e.g., `firewall`, `suid_sgid`, `auditd`, `docker_security`)'
+        status:
+          type: string
+          enum: [Pass, Warn, Fail]
+        details:
+          type: string
+          description: Human-readable findings
+        timestamp:
+          type: string
+          format: date-time
+
+    # ── Pending Actions ─────────────────────────
+
+    PendingActionJson:
+      type: object
+      required: [id, threat_source, threat_message, severity, mode, actions, status, age_seconds]
+      properties:
+        id:
+          type: string
+          format: uuid
+        threat_source:
+          type: string
+          description: Module that detected the threat
+        threat_message:
+          type: string
+        severity:
+          type: string
+          enum: [INFO, WARN, CRIT]
+        mode:
+          type: string
+          enum: [Gate, Reactive]
+          description: |
+            `Gate` = action held at control point, agent blocked.
+            `Reactive` = post-detection containment proposal.
+        actions:
+          type: array
+          items:
+            type: string
+          description: |
+            Proposed containment actions as display strings
+            (e.g., `kill_process(pid=1234)`, `drop_network(uid=1000)`,
+            `revoke_api_keys`, `lock_clawsudo`)
+        playbook:
+          type: string
+          nullable: true
+          description: Name of the matched response playbook, if any
+        status:
+          type: string
+        age_seconds:
+          type: integer
+          format: int64
+          description: How long this action has been pending
+
+    ResolveBody:
+      type: object
+      properties:
+        by:
+          type: string
+          default: api_user
+          description: Who is approving/denying
+        message:
+          type: string
+          nullable: true
+          description: Optional reason
+
+    ResolveResult:
+      type: object
+      required: [id, result]
+      properties:
+        id:
+          type: string
+        result:
+          type: string
+          enum: [approved, denied]
+
+    # ── Evidence Bundle ─────────────────────────
+
+    EvidenceBundle:
+      type: object
+      required:
+        - generated_at
+        - clawtower_version
+        - compliance_report
+        - scanner_snapshot
+        - audit_chain_proof
+        - policy_versions
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+        clawtower_version:
+          type: string
+        compliance_report:
+          $ref: '#/components/schemas/ComplianceReport'
+        scanner_snapshot:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScannerSnapshotEntry'
+        audit_chain_proof:
+          $ref: '#/components/schemas/AuditChainProof'
+        policy_versions:
+          $ref: '#/components/schemas/PolicyVersions'
+
+    ComplianceReport:
+      type: object
+      required: [framework, period_days, generated_at, total_alerts, alerts_by_severity, control_findings, scanner_summary]
+      properties:
+        framework:
+          type: string
+          enum: [soc2, nist800-53, cis-v8, mitre-attack]
+        period_days:
+          type: integer
+        generated_at:
+          type: string
+          format: date-time
+        total_alerts:
+          type: integer
+          format: int64
+        alerts_by_severity:
+          type: object
+          required: [critical, warning, info]
+          properties:
+            critical:
+              type: integer
+              format: int64
+            warning:
+              type: integer
+              format: int64
+            info:
+              type: integer
+              format: int64
+        control_findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/ControlFinding'
+        scanner_summary:
+          type: object
+          required: [total_scans, pass_count, warn_count, fail_count]
+          properties:
+            total_scans:
+              type: integer
+              format: int64
+            pass_count:
+              type: integer
+              format: int64
+            warn_count:
+              type: integer
+              format: int64
+            fail_count:
+              type: integer
+              format: int64
+
+    ControlFinding:
+      type: object
+      required: [control_id, control_name, alert_count, highest_severity, status, categories]
+      properties:
+        control_id:
+          type: string
+          description: 'Framework-specific control ID (e.g., `CC6.1`, `AC-2`, `4.1`)'
+        control_name:
+          type: string
+        alert_count:
+          type: integer
+          format: int64
+        highest_severity:
+          type: string
+        status:
+          type: string
+          enum: [Pass, Finding, Critical]
+        categories:
+          type: array
+          items:
+            type: string
+          description: Alert source categories mapped to this control
+
+    ScannerSnapshotEntry:
+      type: object
+      required: [category, status, details, timestamp]
+      properties:
+        category:
+          type: string
+        status:
+          type: string
+          enum: [Pass, Warn, Fail]
+        details:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    AuditChainProof:
+      type: object
+      required: [integrity_verified]
+      properties:
+        chain_file:
+          type: string
+          nullable: true
+          description: Path to the audit chain JSONL file
+        total_entries:
+          type: integer
+          format: int64
+          nullable: true
+        integrity_verified:
+          type: boolean
+          description: Whether the SHA-256 hash chain is intact
+        verification_error:
+          type: string
+          nullable: true
+
+    PolicyVersions:
+      type: object
+      required: [policies, ioc_databases]
+      properties:
+        policies:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: Loaded YAML policy file metadata
+        ioc_databases:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: Loaded IOC/Barnacle database metadata
+        active_profile:
+          type: string
+          nullable: true
+          description: Active agent profile name, if configured
+
+    # ── Approvals ───────────────────────────────
+
+    ApprovalSubmitBody:
+      type: object
+      required: [command]
+      properties:
+        command:
+          type: string
+          description: The command or action requiring approval
+        agent:
+          type: string
+          default: unknown
+          description: Name of the agent requesting approval
+        context:
+          type: string
+          default: ''
+          description: Additional context about why this action is needed
+        severity:
+          type: string
+          enum: [info, warning, critical]
+          default: warning
+        timeout_secs:
+          type: integer
+          format: int64
+          default: 300
+          description: Seconds to wait before the request times out
+
+    ApprovalStatusResponse:
+      type: object
+      required: [id, status]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [pending, approved, denied, timed_out]
+
+    ApprovalResolveBody:
+      type: object
+      required: [approved]
+      properties:
+        approved:
+          type: boolean
+        by:
+          type: string
+          default: api_user
+          description: Who is resolving
+        via:
+          type: string
+          default: api
+          description: Resolution channel
+        message:
+          type: string
+          nullable: true
+          description: Optional reason
+
+    # ── Shared ──────────────────────────────────
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: invalid path
+
+    Unauthorized:
+      description: Missing or invalid Bearer token
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+            example: Bearer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: unauthorized
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: approval not found
+
+    MethodNotAllowed:
+      description: Wrong HTTP method
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: POST required
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    ServiceUnavailable:
+      description: Required subsystem not enabled
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: response engine not enabled
