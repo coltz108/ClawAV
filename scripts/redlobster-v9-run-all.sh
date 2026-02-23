@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Red Lobster v9 — Smorgasbord + New Attack Surfaces
-# Threat model: compromised openclaw agent, NO sudo, NO clawsudo
-# Usage: bash scripts/redlobster-v9-run-all.sh [flag18|flag19|flag20|flag21|flag22|flag23|all]
+# Threat model: compromised openclaw agent
+#   flag18-23: NO sudo, NO clawsudo
+#   flag19b:   WITH sudo whitelist + clawsudo (clawsudo bypass audit)
+# Usage: bash scripts/redlobster-v9-run-all.sh [flag18|flag19|flag19b|flag20|flag21|flag22|flag23|all]
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,6 +15,7 @@ mkdir -p "$RESULTS_DIR"
 FLAGS=(
     "flag18:redlobster-v9-flag18-greatest.sh:GREATEST HITS (regression smorgasbord)"
     "flag19:redlobster-v9-flag19-envpoison.sh:ENV POISONING"
+    "flag19b:redlobster-v9-flag19-clawsudo-bypass.sh:CLAWSUDO BYPASS (sudoers + policy + approval)"
     "flag20:redlobster-v9-flag20-timing.sh:TIMING & RACE CONDITIONS"
     "flag21:redlobster-v9-flag21-covert.sh:COVERT CHANNELS"
     "flag22:redlobster-v9-flag22-supply.sh:SUPPLY CHAIN"
@@ -28,7 +31,7 @@ echo "│  ClawTower $CT_VERSION                                       │"
 echo "│  $(date '+%Y-%m-%d %H:%M:%S %Z')                              │"
 echo "│  Target: $TARGET                                             │"
 echo "│  User: $(whoami) (uid=$(id -u))                              │"
-echo "│  Threat model: NO sudo, NO clawsudo                         │"
+echo "│  Threat model: per-flag (see flag list)                       │"
 echo "└───────────────────────────────────────────────────────┘"
 echo ""
 
@@ -74,7 +77,7 @@ if [[ "$TARGET" == "all" ]]; then
         echo "- **Date:** $(date '+%Y-%m-%d %H:%M:%S %Z')"
         echo "- **ClawTower:** $CT_VERSION"
         echo "- **User:** $(whoami) (uid=$(id -u))"
-        echo "- **Threat model:** Compromised agent, NO sudo, NO clawsudo"
+        echo "- **Threat model:** Compromised agent (per-flag: no-sudo or with-sudo)"
         echo ""
         for entry in "${FLAGS[@]}"; do
             IFS=: read -r key script label <<< "$entry"
