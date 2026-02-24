@@ -46,7 +46,7 @@ export function PendingActionCard({
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/ct/pending/${action.id}/${type}`, {
+      const res = await fetch(`/api/pending/${action.id}/${type}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ by: 'dashboard_user' }),

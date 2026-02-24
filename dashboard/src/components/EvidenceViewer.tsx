@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { StatusBadge } from './StatusBadge'
-import { deepParseJsonStrings } from '@/lib/fetcher'
 
 interface ControlFinding {
   control_id: string
@@ -78,17 +77,9 @@ export function EvidenceViewer() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/ct/evidence?framework=${framework}&period=${period}`)
+      const res = await fetch(`/api/evidence?framework=${framework}&period=${period}`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      let json = await res.json()
-      // DTU engine wraps in {data: [...], has_more: boolean}
-      if (json && typeof json === 'object' && 'data' in json && Array.isArray(json.data)) {
-        json = json.data[0] || null
-      }
-      // Deep-parse any nested JSON strings from DTU SQLite storage
-      if (json) {
-        json = deepParseJsonStrings(json)
-      }
+      const json = await res.json()
       setData(json as EvidenceBundle)
     } catch (err) {
       setError(String(err))

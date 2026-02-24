@@ -440,19 +440,22 @@ pub async fn run_watchdog(state: AppState, receivers: AlertReceivers) -> Result<
         None
     };
 
-    // ── API server ──────────────────────────────────────────────────────────
+    // ── API + Dashboard servers ─────────────────────────────────────────────
 
-    if state.config.api.enabled {
-        if let Err(e) = state.config.api.validate() {
-            eprintln!("FATAL: {}", e);
-            std::process::exit(1);
+    // Build shared ApiContext when either API or dashboard is enabled
+    let api_ctx = if state.config.api.enabled || state.config.dashboard.enabled {
+        if state.config.api.enabled {
+            if let Err(e) = state.config.api.validate() {
+                eprintln!("FATAL: {}", e);
+                std::process::exit(1);
+            }
         }
         let audit_chain_path = if unsafe { libc::getuid() } == 0 {
             PathBuf::from("/var/log/clawtower/audit.chain")
         } else {
             PathBuf::from(format!("/tmp/clawtower-{}/audit.chain", unsafe { libc::getuid() }))
         };
-        let ctx = std::sync::Arc::new(api::ApiContext {
+        Some(std::sync::Arc::new(api::ApiContext {
             store: state.alert_store.clone(),
             start_time: std::time::Instant::now(),
             auth_token: state.config.api.auth_token.clone(),
@@ -466,12 +469,29 @@ pub async fn run_watchdog(state: AppState, receivers: AlertReceivers) -> Result<
             active_profile: state.profile_name.clone(),
             orchestrator: Some(orchestrator.clone()),
             slack_signing_secret: state.config.slack.signing_secret.clone(),
-        });
+        }))
+    } else {
+        None
+    };
+
+    if state.config.api.enabled {
+        let ctx = api_ctx.clone().unwrap();
         let bind = state.config.api.bind.clone();
         let port = state.config.api.port;
         tokio::spawn(async move {
             if let Err(e) = api::run_api_server_with_context(&bind, port, ctx).await {
                 eprintln!("API server error: {}", e);
+            }
+        });
+    }
+
+    if state.config.dashboard.enabled {
+        let ctx = api_ctx.clone().unwrap();
+        let bind = state.config.dashboard.bind.clone();
+        let port = state.config.dashboard.port;
+        tokio::spawn(async move {
+            if let Err(e) = crate::interface::dashboard::run_dashboard_server(&bind, port, ctx).await {
+                eprintln!("Dashboard server error: {}", e);
             }
         });
     }

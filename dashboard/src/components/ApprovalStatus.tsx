@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { deepParseJsonStrings } from '@/lib/fetcher'
 
 interface Approval {
   id: string
@@ -36,15 +35,10 @@ export function ApprovalStatus({ approvals: entries }: { approvals: ApprovalEntr
 
   const pollApproval = useCallback(async (id: string) => {
     try {
-      const res = await fetch(`/api/ct/approvals/${id}`)
+      const res = await fetch(`/api/approvals/${id}`)
       if (res.ok) {
-        let data = await res.json()
-        // DTU envelope unwrapping
-        if (data && typeof data === 'object' && 'data' in data && Array.isArray(data.data)) {
-          data = data.data[0] || null
-        }
+        const data = await res.json()
         if (data) {
-          data = deepParseJsonStrings(data)
           setApprovals((prev) => ({ ...prev, [id]: data as Approval }))
         }
       }
@@ -75,7 +69,7 @@ export function ApprovalStatus({ approvals: entries }: { approvals: ApprovalEntr
       return next
     })
     try {
-      const res = await fetch(`/api/ct/approvals/${id}/resolve`, {
+      const res = await fetch(`/api/approvals/${id}/resolve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

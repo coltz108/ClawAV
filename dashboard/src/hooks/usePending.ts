@@ -1,7 +1,7 @@
 import useSWR from 'swr'
-import { listFetcher } from '@/lib/fetcher'
+import { fetcher } from '@/lib/fetcher'
 import type { PendingAction } from '@/lib/types'
 
 export function usePending() {
-  return useSWR<PendingAction[]>('/api/ct/pending', listFetcher as () => Promise<PendingAction[]>, { refreshInterval: 5000 })
+  return useSWR<PendingAction[]>('/api/pending', fetcher as () => Promise<PendingAction[]>, { refreshInterval: 5000 })
 }

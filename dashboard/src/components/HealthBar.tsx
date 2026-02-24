@@ -13,7 +13,7 @@ export function HealthBar() {
   const uptime = formatUptime(health?.uptime_seconds)
   const lastAlert = formatRelativeTime(health?.last_alert_age_seconds)
 
-  // modules is already deep-parsed by singleFetcher, but add fallback
+  // Normalize modules object with fallback
   let modules: Record<string, boolean> = {}
   const rawModules = status?.modules
   if (rawModules && typeof rawModules === 'object' && !Array.isArray(rawModules)) {

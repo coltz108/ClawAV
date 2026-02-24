@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { deepParseJsonStrings } from '@/lib/fetcher'
 
 interface ApprovalFormProps {
   onSubmit: (id: string, command: string) => void
@@ -21,7 +20,7 @@ export function ApprovalForm({ onSubmit }: ApprovalFormProps) {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch('/api/ct/approvals', {
+      const res = await fetch('/api/approvals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -30,18 +29,12 @@ export function ApprovalForm({ onSubmit }: ApprovalFormProps) {
           context: context || undefined,
           severity,
           timeout_secs: timeoutSecs,
-          status: 'pending',
         }),
       })
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`)
       }
-      let data = await res.json()
-      // DTU engine may wrap in {data: [...], has_more: boolean}
-      if (data && typeof data === 'object' && 'data' in data && Array.isArray(data.data)) {
-        data = data.data[0] || data
-      }
-      data = deepParseJsonStrings(data)
+      const data = await res.json()
       onSubmit(data.id, command)
       setCommand('')
       setContext('')

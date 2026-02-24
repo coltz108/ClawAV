@@ -230,7 +230,7 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
     a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-async fn handle(
+pub(crate) async fn handle(
     req: Request<Body>,
     ctx: Arc<ApiContext>,
 ) -> Result<Response<Body>, Infallible> {

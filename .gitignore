@@ -15,3 +15,6 @@ test_interpose
 .docs/
 ClawTower.code-workspace
 /docs/plans/
+dashboard/node_modules/
+dashboard/out/
+dashboard/.next/
